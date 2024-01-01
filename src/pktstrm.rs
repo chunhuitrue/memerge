@@ -2,6 +2,7 @@ use core::cmp::Ordering;
 use etherparse::TransportHeader;
 use packet::Packet;
 use std::collections::BinaryHeap;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct PktStrm<'a> {
@@ -35,7 +36,7 @@ impl Default for PktStrm<'_> {
 }
 
 #[derive(Debug, Clone)]
-struct SeqPacket<'a>(Packet<'a>);
+struct SeqPacket<'a>(Rc<Packet<'a>>);
 
 impl PartialEq for SeqPacket<'_> {
     fn eq(&self, other: &Self) -> bool {
