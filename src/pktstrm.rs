@@ -5,11 +5,11 @@ use std::collections::BinaryHeap;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub struct PktStrm<'a> {
-    pkt_cache: BinaryHeap<SeqPacket<'a>>,
+pub struct PktStrm {
+    pkt_cache: BinaryHeap<SeqPacket>,
 }
 
-impl<'a> PktStrm<'a> {
+impl PktStrm {
     pub fn new() -> Self {
         PktStrm { pkt_cache: BinaryHeap::new() }
     }
@@ -29,16 +29,16 @@ impl<'a> PktStrm<'a> {
     }
 }
 
-impl Default for PktStrm<'_> {
+impl Default for PktStrm {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[derive(Debug, Clone)]
-struct SeqPacket<'a>(Rc<Packet<'a>>);
+struct SeqPacket(Rc<Packet>);
 
-impl PartialEq for SeqPacket<'_> {
+impl PartialEq for SeqPacket {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0.header.borrow().as_ref().unwrap().transport, &other.0.header.borrow().as_ref().unwrap().transport) {
             (Some(TransportHeader::Tcp(s_tcph)), Some(TransportHeader::Tcp(o_tcph))) => {
@@ -49,15 +49,15 @@ impl PartialEq for SeqPacket<'_> {
     }
 }
 
-impl Eq for SeqPacket<'_> {}
+impl Eq for SeqPacket {}
 
-impl PartialOrd for SeqPacket<'_> {
+impl PartialOrd for SeqPacket {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for SeqPacket<'_> {
+impl Ord for SeqPacket {
     fn cmp(&self, other: &Self) -> Ordering {
         match (&self.0.header.borrow().as_ref().unwrap().transport, &other.0.header.borrow().as_ref().unwrap().transport) {
             (Some(TransportHeader::Tcp(s_tcph)), Some(TransportHeader::Tcp(o_tcph))) => {
