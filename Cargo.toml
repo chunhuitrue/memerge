@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 etherparse = "0.13.0"
-packet = { path = "../packet", version = "0.1.0"}

@@ -1,6 +1,6 @@
 use core::cmp::Ordering;
 use etherparse::TransportHeader;
-use packet::Packet;
+use crate::Packet;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
 
