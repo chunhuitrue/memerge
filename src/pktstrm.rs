@@ -1,31 +1,50 @@
 use core::cmp::Ordering;
+use std::cmp::Reverse;
 use etherparse::TransportHeader;
 use crate::Packet;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
 
+const MAX_CACHE_PKTS: usize = 32;
+
 #[derive(Debug, Clone)]
 pub struct PktStrm {
-    pkt_cache: BinaryHeap<SeqPacket>,
+    cache: BinaryHeap<Reverse<SeqPacket>>,
 }
 
 impl PktStrm {
     pub fn new() -> Self {
-        PktStrm { pkt_cache: BinaryHeap::new() }
+        PktStrm { cache: BinaryHeap::with_capacity(MAX_CACHE_PKTS) }
     }
 
     /// 数据包处理，放入缓存
-    pub fn put(&mut self, pkt: &Packet) {
-        
-        // 需要判断是否是tcp
-        todo!()
+    pub fn put(&mut self, pkt: Rc<Packet>) {
+        if let Some(TransportHeader::Tcp(_)) = &pkt.header.borrow().as_ref().unwrap().transport {
+            if self.cache.len() >= MAX_CACHE_PKTS {
+                return;
+            }
+            
+            self.cache.push(Reverse(SeqPacket(Rc::clone(&pkt))));
+        }
     }
 
+    /// 得到一个严格有序，连续seq的数据包
+    pub fn get_ord_pkt(&mut self) -> Option<Packet> {
+        todo!()
+    }
+    
     /// 链接结束
     pub fn finish(&mut self) {
+        self.cache.clear();
     }
 
     pub fn timeout(&self) {
+    }
+}
+
+impl Drop for PktStrm {
+    fn drop(&mut self) {
+        self.cache.clear();
     }
 }
 
