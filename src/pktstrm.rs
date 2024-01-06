@@ -15,14 +15,14 @@ impl PktStrm {
     }
 
     /// 数据包处理，放入缓存
-    pub fn put(&mut self, _pkt: &Packet) {
+    pub fn put(&mut self, pkt: &Packet) {
+        
         // 需要判断是否是tcp
         todo!()
     }
 
     /// 链接结束
     pub fn finish(&mut self) {
-        todo!()
     }
 
     pub fn timeout(&self) {
