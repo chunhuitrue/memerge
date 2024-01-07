@@ -10,14 +10,18 @@ const MAX_CACHE_PKTS: usize = 32;
 #[derive(Debug, Clone)]
 pub struct PktStrm {
     cache: BinaryHeap<Reverse<SeqPacket>>,
+    expect_seq: u32
 }
 
 impl PktStrm {
     pub fn new() -> Self {
-        PktStrm { cache: BinaryHeap::with_capacity(MAX_CACHE_PKTS) }
+        PktStrm { cache: BinaryHeap::with_capacity(MAX_CACHE_PKTS),
+                  expect_seq: 0
+        }
     }
 
-    /// 数据包处理，放入缓存
+    /// 放入缓存，准备重组
+    ///
     pub fn put(&mut self, pkt: Rc<Packet>) {
         if let Some(TransportHeader::Tcp(_)) = &pkt.header.borrow().as_ref().unwrap().transport {
             if self.cache.len() >= MAX_CACHE_PKTS {
@@ -29,8 +33,31 @@ impl PktStrm {
     }
 
     /// 得到一个严格有序，连续seq的数据包
-    pub fn get_ord_pkt(&mut self) -> Option<Packet> {
-        todo!()
+    pub fn get_ord_pkt(&mut self) -> Option<Rc<Packet>> {
+        if self.expect_seq == 0 {
+            if let Some(pkt) = self.cache.pop().map(|rev_pkt| rev_pkt.0.0) {
+                self.expect_seq = pkt.seq() + pkt.data_len;
+                return Some(pkt);
+            } else {
+                return None;
+            }
+        }
+
+        if let Some(pkt) = self.cache.peek().map(|rev_pkt| &rev_pkt.0.0) {
+            if pkt.seq() == self.expect_seq {
+                self.expect_seq += pkt.data_len;
+                return self.cache.pop().map(|rev_pkt| rev_pkt.0.0);
+            } else if pkt.seq() + pkt.data_len <= self.expect_seq {
+                self.cache.pop();
+                return None;
+            } else if pkt.seq() < self.expect_seq && pkt.seq() + pkt.data_len > self.expect_seq {
+                self.expect_seq =  pkt.seq() + pkt.data_len;
+                return self.cache.pop().map(|rev_pkt| rev_pkt.0.0);                
+            }
+            None
+        } else {
+            None
+        }
     }
     
     /// 链接结束
@@ -85,4 +112,14 @@ impl Ord for SeqPacket {
             _ => Ordering::Equal,
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    // use super::*;
+
+    // #[test]
+    // fn tt() {
+        
+    // }
 }

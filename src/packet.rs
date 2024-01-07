@@ -18,21 +18,21 @@ pub struct PktHeader {
 #[derive(Eq, PartialEq, Clone)]
 pub struct Packet {
     pub timestamp: u128,
-    pub caplen: u32,
+    pub data_len: u32,
     pub data: [u8; MAX_PACKET_LEN],
     pub header: RefCell<Option<PktHeader>>
 }
 
 impl Packet {
-    pub fn new(ts: u128, data_len: u32, data: &[u8]) -> Rc<Packet> {
+    pub fn new(ts: u128, len: u32, data: &[u8]) -> Rc<Packet> {
         let mut pkt = Packet {
             timestamp: ts,
-            caplen: data_len,
+            data_len: len,
             data: [0; MAX_PACKET_LEN],
             header: RefCell::new(None)
         };
-        let s_data = &mut pkt.data[..data_len.try_into().unwrap()];
-        s_data.copy_from_slice(&data[..data_len.try_into().unwrap()]);
+        let s_data = &mut pkt.data[..len.try_into().unwrap()];
+        s_data.copy_from_slice(&data[..len.try_into().unwrap()]);
         Rc::new(pkt)
     }
 
@@ -49,6 +49,14 @@ impl Packet {
                 Ok(())
             }
             Err(_) => Err(PacketError::DecodeErr),
+        }
+    }
+
+    pub fn seq(&self) -> u32 {
+        if let Some(TransportHeader::Tcp(tcph)) = &self.header.borrow().as_ref().unwrap().transport {
+            tcph.sequence_number
+        } else {
+            0
         }
     }
 }
@@ -68,7 +76,7 @@ impl fmt::Debug for Packet {
             "ip: {:?}, Packet: ts: {}, caplen: {}, data: {:?}",
             self.header.borrow().as_ref().unwrap().ip,
             self.timestamp,
-            self.caplen,
+            self.data_len,
             self.data
         )
     }
