@@ -12,27 +12,28 @@ pub struct PktHeader {
     pub vlan: Option<VlanHeader>,
     pub ip: Option<IpHeader>,
     pub transport: Option<TransportHeader>,
-    pub payload_offset: usize
+    pub payload_offset: usize,
+    pub payload_len: usize
 }
 
 #[derive(Eq, PartialEq, Clone)]
 pub struct Packet {
     pub timestamp: u128,
-    pub data_len: u32,
     pub data: [u8; MAX_PACKET_LEN],
+    pub data_len: usize,
     pub header: RefCell<Option<PktHeader>>
 }
 
 impl Packet {
-    pub fn new(ts: u128, len: u32, data: &[u8]) -> Rc<Packet> {
+    pub fn new(ts: u128, len: usize, data: &[u8]) -> Rc<Packet> {
         let mut pkt = Packet {
             timestamp: ts,
             data_len: len,
             data: [0; MAX_PACKET_LEN],
             header: RefCell::new(None)
         };
-        let s_data = &mut pkt.data[..len.try_into().unwrap()];
-        s_data.copy_from_slice(&data[..len.try_into().unwrap()]);
+        let s_data = &mut pkt.data[..len];
+        s_data.copy_from_slice(&data[..len]);
         Rc::new(pkt)
     }
 
@@ -44,7 +45,8 @@ impl Packet {
                     vlan: headers.vlan,
                     ip: headers.ip,
                     transport: headers.transport,
-                    payload_offset: headers.payload.as_ptr() as usize - self.data.as_ptr() as usize
+                    payload_offset: headers.payload.as_ptr() as usize - self.data.as_ptr() as usize,
+                    payload_len: self.data_len - (headers.payload.as_ptr() as usize - self.data.as_ptr() as usize)
                 }));
                 Ok(())
             }
@@ -58,6 +60,10 @@ impl Packet {
         } else {
             0
         }
+    }
+
+    pub fn payload_len(&self) -> u32 {
+        self.header.borrow().as_ref().unwrap().payload_len.try_into().unwrap()
     }
 }
 
