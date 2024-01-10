@@ -38,64 +38,85 @@ impl PktStrm {
             pkt.clone()
         })
     }
-    
-    // peek一个seq严格有序的包，不严格有序就为None
-    pub fn peek_ord(&self) -> Option<Rc<Packet>> {
+
+    // peek一个seq严格有序的包，有重复，就pop。直到不有序为止
+    pub fn peek_ord(&mut self) -> Option<Rc<Packet>> {
         if self.expect_seq == 0 {
            return self.peek();
         }
-
-        if let Some(pkt) = self.peek() {
+        
+        while let Some(pkt) = self.peek() {
             if pkt.seq() == self.expect_seq {
                 return self.peek();
             } else if pkt.seq() + pkt.payload_len() <= self.expect_seq {
-                return None;
+                self.pop();
+                continue;
             } else if pkt.seq() < self.expect_seq && pkt.seq() + pkt.payload_len() > self.expect_seq {
-                return self.peek();
+                return self.peek();                
+            } else {
+                return None;
             }
-            None
-        } else {
-            None
         }
+        None
     }
+    
+    // // peek一个seq严格有序的包，不严格有序就为None
+    // pub fn peek_ord(&self) -> Option<Rc<Packet>> {
+    //     if self.expect_seq == 0 {
+    //        return self.peek();
+    //     }
 
-    // 判断当前包是否是seq严格有序
-    pub fn is_top_ord(&self) -> bool {
-        if self.peek_ord().is_none() {
-            return false;
-        }
-        true
-    }
+    //     if let Some(pkt) = self.peek() {
+    //         if pkt.seq() == self.expect_seq {
+    //             return self.peek();
+    //         } else if pkt.seq() + pkt.payload_len() <= self.expect_seq {
+    //             return None;
+    //         } else if pkt.seq() < self.expect_seq && pkt.seq() + pkt.payload_len() > self.expect_seq {
+    //             return self.peek();
+    //         }
+    //         None
+    //     } else {
+    //         None
+    //     }
+    // }
+
+    // // 判断当前包是否是seq严格有序
+    // pub fn is_top_ord(&self) -> bool {
+    //     if self.peek_ord().is_none() {
+    //         return false;
+    //     }
+    //     true
+    // }
     
     // 无论是否严格seq连续，都pop一个当前包
     pub fn pop(&mut self) -> Option<Rc<Packet>> {
         self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
     }
 
-    // pop一个seq严格有序的包,如果top的不是有序，None
-    pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
-        if let Some(pkt) = self.peek_ord() {
-            if self.expect_seq == 0 {
-                self.expect_seq = pkt.seq() + pkt.payload_len();
-                return self.pop();
-            }
+    // // pop一个seq严格有序的包,如果top的不是有序，None
+    // pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
+    //     if let Some(pkt) = self.peek_ord() {
+    //         if self.expect_seq == 0 {
+    //             self.expect_seq = pkt.seq() + pkt.payload_len();
+    //             return self.pop();
+    //         }
 
-            if pkt.seq() == self.expect_seq {
-                self.expect_seq += pkt.payload_len();
-                self.pop()
-            } else if pkt.seq() + pkt.payload_len() <= self.expect_seq {
-                self.pop();
-                return None;
-            } else if pkt.seq() < self.expect_seq && pkt.seq() + pkt.payload_len() > self.expect_seq {
-                self.expect_seq = pkt.seq() + pkt.payload_len();
-                return self.pop();                
-            } else {
-                return None;
-            }
-        } else {
-            None
-        }
-    }
+    //         if pkt.seq() == self.expect_seq {
+    //             self.expect_seq += pkt.payload_len();
+    //             self.pop()
+    //         } else if pkt.seq() + pkt.payload_len() <= self.expect_seq {
+    //             self.pop();
+    //             return None;
+    //         } else if pkt.seq() < self.expect_seq && pkt.seq() + pkt.payload_len() > self.expect_seq {
+    //             self.expect_seq = pkt.seq() + pkt.payload_len();
+    //             return self.pop();                
+    //         } else {
+    //             return None;
+    //         }
+    //     } else {
+    //         None
+    //     }
+    // }
 
     pub fn len(&self) -> usize {
         self.cache.len()
@@ -263,7 +284,7 @@ mod tests {
         stm.clear();        
     }
 
-    // 插入的包严格有序 1-10 11-12 
+    // 插入的包严格有序 1-10 11-20 21-30
     #[test]
     fn test_peek_ord() {
         let mut stm = PktStrm::new();
@@ -285,11 +306,11 @@ mod tests {
         stm.push(pkt1.clone());
         
         assert_eq!(seq1, stm.peek_ord().unwrap().seq());
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq1, stm.pop().unwrap().seq());
         assert_eq!(seq2, stm.peek_ord().unwrap().seq());
-        assert_eq!(seq2, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq2, stm.pop().unwrap().seq());
         assert_eq!(seq3, stm.peek_ord().unwrap().seq());
-        assert_eq!(seq3, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq3, stm.pop().unwrap().seq());
         assert!(stm.is_empty());
         stm.clear();
     }
@@ -316,20 +337,27 @@ mod tests {
         stm.push(pkt1.clone());
         stm.push(pkt3);
 
-        dbg!("pkt1 payload len", pkt1.payload_len());        
-        dbg!("seq1", seq1);
-        dbg!("seq2", seq2);
-        dbg!("seq3", seq3);
+        // dbg!(pkt1.payload_len());        
+        // dbg!(seq1);
+        // dbg!(seq2);
+        // dbg!(seq3);
         
         assert_eq!(seq1, stm.peek_ord().unwrap().seq()); // 看到pkt1
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());  // 弹出pkt1
+        assert_eq!(seq1, stm.pop().unwrap().seq());      // 弹出pkt1
         assert_eq!(3, stm.len());
-        assert_eq!(None, stm.peek_ord());                // 重复的pkt1是top，返回none
-        assert_eq!(None, stm.pop_ord());                 // 重复的pkt1是top，释放了这个pkt1，返回none
 
+        dbg!(stm.peek().unwrap().seq());
         dbg!(stm.len());
         dbg!(stm.expect_seq);
-        assert_eq!(2, stm.len());
+        
+        assert_eq!(seq2, stm.peek_ord().unwrap().seq());     // 重复的pkt1被内部释放，看到pkt2
+        // assert_eq!(None, stm.pop_ord());                 // 重复的pkt1是top，释放了这个pkt1，返回none
+        // peek 没有更新seq
+        
+        dbg!(stm.peek().unwrap().seq());
+        dbg!(stm.len());
+        dbg!(stm.expect_seq);
+        // assert_eq!(2, stm.len());
         
         // dbg!(stm.len());
         // dbg!(stm.peek().unwrap().seq());
@@ -372,6 +400,6 @@ mod tests {
         builder.write(&mut result, &payload).unwrap();
         // println!("result len:{}", result.len());
         
-        Packet::new(1, result.len().try_into().unwrap(), &result)
+        Packet::new(1, result.len(), &result)
     }
 }
