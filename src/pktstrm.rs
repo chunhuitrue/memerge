@@ -165,9 +165,6 @@ mod tests {
     fn test_pkt() {
         let pkt1 = make_pkt_data(123);
         let _ = pkt1.decode();
-        dbg!(pkt1.data_len);        
-        dbg!(pkt1.header.borrow().as_ref().unwrap().payload_offset);
-        dbg!(pkt1.header.borrow().as_ref().unwrap().payload_len);
         assert_eq!(72, pkt1.data_len);
         assert_eq!(62, pkt1.header.borrow().as_ref().unwrap().payload_offset);
         assert_eq!(10, pkt1.header.borrow().as_ref().unwrap().payload_len);
