@@ -6,6 +6,7 @@ use etherparse::TransportHeader;
 use crate::Packet;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
+use crate::{ntohs, ntohl, htons, htonl};
 
 const MAX_CACHE_PKTS: usize = 32;
 
@@ -160,7 +161,8 @@ impl Ord for SeqPacket {
 mod tests {
     use super::*;
     use etherparse::*;    
-
+    use crate::{ntohs, ntohl, htons, htonl};
+    
     #[test]
     fn test_pkt() {
         let pkt1 = make_pkt_data(123);
@@ -168,6 +170,7 @@ mod tests {
         assert_eq!(72, pkt1.data_len);
         assert_eq!(62, pkt1.header.borrow().as_ref().unwrap().payload_offset);
         assert_eq!(10, pkt1.header.borrow().as_ref().unwrap().payload_len);
+        assert_eq!(25, pkt1.header.borrow().as_ref().unwrap().sport());
     }
     
     #[test]
@@ -434,7 +437,7 @@ mod tests {
                   [192,168,1,2], //desitionation ip
                   20)            //time to life
             .tcp(25,    //source port 
-                 4000,  //desitnation port
+                 htons(4000),  //desitnation port
                  seq,     //sequence number
                  1024) //window size
         //set additional tcp header fields
