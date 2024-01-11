@@ -16,6 +16,27 @@ pub struct PktHeader {
     pub payload_len: usize
 }
 
+impl PktHeader {
+    // 返回tcp或者udp的sport
+    pub fn sport(&self) -> u16 {
+        match &self.transport {
+            Some(TransportHeader::Udp(udph)) => udph.source_port,
+            Some(TransportHeader::Tcp(tcph)) => tcph.source_port,
+            _ => 0
+        }
+    }
+
+    // 返回tcp或者udp的sport
+    pub fn dport(&self) -> u16 {
+        match &self.transport {
+            Some(TransportHeader::Udp(udph)) => udph.destination_port,
+            Some(TransportHeader::Tcp(tcph)) => tcph.destination_port,
+            _ => 0
+        }
+    }
+    
+}
+
 #[derive(Eq, PartialEq, Clone)]
 pub struct Packet {
     pub timestamp: u128,
