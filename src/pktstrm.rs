@@ -6,7 +6,7 @@ use etherparse::TransportHeader;
 use crate::Packet;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
-use crate::{ntohs, ntohl, htons, htonl};
+use crate::util::*;
 
 const MAX_CACHE_PKTS: usize = 32;
 
@@ -150,7 +150,7 @@ impl Ord for SeqPacket {
     fn cmp(&self, other: &Self) -> Ordering {
         match (&self.0.header.borrow().as_ref().unwrap().transport, &other.0.header.borrow().as_ref().unwrap().transport) {
             (Some(TransportHeader::Tcp(s_tcph)), Some(TransportHeader::Tcp(o_tcph))) => {
-                s_tcph.sequence_number.cmp(&o_tcph.sequence_number)
+                ntohl(s_tcph.sequence_number).cmp(&ntohl(o_tcph.sequence_number))
             }
             _ => Ordering::Equal,
         }
@@ -190,6 +190,7 @@ mod tests {
         let _ = pkt2.decode();
         let pkt2 = SeqPacket(pkt2);
         assert_ne!(pkt1, pkt2);
+        assert!(pkt1 > pkt2);
     }
 
     #[test]
@@ -438,7 +439,7 @@ mod tests {
                   20)            //time to life
             .tcp(25,    //source port 
                  htons(4000),  //desitnation port
-                 seq,     //sequence number
+                 htonl(seq),     //sequence number
                  1024) //window size
         //set additional tcp header fields
             .ns() //set the ns flag
