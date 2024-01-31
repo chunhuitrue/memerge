@@ -7,6 +7,8 @@ use crate::Packet;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
 use crate::util::*;
+use crate::Task;
+use futures_util::{stream::{Stream, StreamExt}};
 
 const MAX_CACHE_PKTS: usize = 32;
 
@@ -18,8 +20,9 @@ pub struct PktStrm {
 
 impl PktStrm {
     pub fn new() -> Self {
-        PktStrm { cache: BinaryHeap::with_capacity(MAX_CACHE_PKTS),
-                  expect_seq: 0
+        PktStrm {
+            cache: BinaryHeap::with_capacity(MAX_CACHE_PKTS),
+            expect_seq: 0
         }
     }
     
@@ -121,6 +124,14 @@ impl Drop for PktStrm {
 impl Default for PktStrm {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Stream for PktStrm {
+    type Item = u8;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        todo!()
     }
 }
 

@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 etherparse = "0.13.0"
+futures-util = "0.3.30"
