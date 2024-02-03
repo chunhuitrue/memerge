@@ -16,14 +16,16 @@ const MAX_CACHE_PKTS: usize = 32;
 #[derive(Debug, Clone)]
 pub struct PktStrm {
     cache: BinaryHeap<Reverse<SeqPacket>>,
-    next_seq: u32             // 下一个要读取的seq
+    next_seq: u32,             // 下一个要读取的seq
+    fin: bool
 }
 
 impl PktStrm {
     pub fn new() -> Self {
         PktStrm {
             cache: BinaryHeap::with_capacity(MAX_CACHE_PKTS),
-            next_seq: 0
+            next_seq: 0,
+            fin: false
         }
     }
     
@@ -69,23 +71,17 @@ impl PktStrm {
     fn top_order(&mut self) {
         while let Some(pkt) = self.peek() {
             if pkt.seq() + pkt.payload_len() <= self.next_seq {
-                self.pop();
+                self.pop_fin(pkt.clone());                
                 continue;
             } else {
                 return;
             }
         }
     }
-    
-    // 无论是否严格seq连续，都pop一个当前包。
-    // 注意：next_seq由调用者负责
-    fn pop(&mut self) -> Option<Rc<Packet>> {
-        self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
-    }
 
     // 如果有序返回pkt，否则返回none
     // 同时会更新当前的seq。
-    pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
+    fn pop_ord(&mut self) -> Option<Rc<Packet>> {
         self.top_order();
         
         if let Some(pkt) = self.peek_ord() {
@@ -97,10 +93,23 @@ impl PktStrm {
                 self.next_seq += pkt.payload_len() - (self.next_seq - pkt.seq());
             }
             
-            self.pop();
+            self.pop_fin(pkt.clone());
             return Some(pkt);
         }
         None
+    }
+
+    fn pop_fin(&mut self, pkt: Rc<Packet>) {
+        if pkt.fin() {
+            self.fin = true;
+        }
+        self.pop();
+    }
+    
+    // 无论是否严格seq连续，都pop一个当前包。
+    // 注意：next_seq由调用者负责
+    fn pop(&mut self) -> Option<Rc<Packet>> {
+        self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
     }
     
     pub fn len(&self) -> usize {
@@ -137,9 +146,17 @@ impl Stream for PktStrm {
 
     fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         if let Some(pkt) = self.peek_ord() {
-            let index = self.next_seq - pkt.seq();
-            self.next_seq += 1;
-            return Poll::Ready(Some(pkt.data[index as usize])); 
+            let index = pkt.header.borrow().as_ref().unwrap().payload_offset as u32 + (self.next_seq - pkt.seq());
+            if pkt.syn() && pkt.payload_len() == 0 {
+                self.next_seq += 1;
+                return Poll::Pending;                
+            }
+            if (index as usize) < pkt.data_len {
+                self.next_seq += 1;
+                return Poll::Ready(Some(pkt.data[index as usize])); 
+            }
+        } else if self.fin {
+            return Poll::Ready(None);
         }
         Poll::Pending
     }
@@ -183,6 +200,9 @@ mod tests {
     use super::*;
     use etherparse::*;    
     use crate::{ntohs, ntohl, htons, htonl};
+    use core::{future::Future};    
+    use crate::Task;
+    use crate::TaskState;
     
     #[test]
     fn test_pkt() {
@@ -446,12 +466,259 @@ mod tests {
         assert_eq!(None, stm.peek_ord());  
         assert_eq!(None, stm.pop_ord());
         
+        stm.clear();
+    }
+
+    // 插入的包严格有序 1-10 11-20 21-30, 最后一个带fin    
+    #[test]    
+    fn test_stm_fin() {
+        let mut stm = PktStrm::new();
+        // 1 - 10
+        let seq1 = 1;
+        let pkt1 = build_pkt(seq1, false);
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt(seq2, false);
+        let _ = pkt2.decode();
+        // 21 - 30
+        let seq3 = seq2 + pkt2.payload_len();
+        let pkt3 = build_pkt(seq3, true);
+        let _ = pkt3.decode();
+
+        stm.push(pkt2.clone());
+        stm.push(pkt3);
+        stm.push(pkt1.clone());
+
+        assert_eq!(seq1, stm.pop_ord().unwrap().seq());
+        assert!(!stm.fin);
+        assert_eq!(seq2, stm.pop_ord().unwrap().seq());
+        assert!(!stm.fin);
+        assert_eq!(seq3, stm.pop_ord().unwrap().seq());
+        assert!(stm.fin);
+        assert!(stm.is_empty());        
+        stm.clear();
+    }
+
+    async fn stream_task() {
+        let mut stm = PktStrm::new();
+        // 1 - 10
+        let seq1 = 1;
+        let pkt1 = build_pkt(seq1, true);
+        let _ = pkt1.decode();
+
+        stm.push(pkt1);
+
+        for i in 0..10 {
+            let ret = stm.next().await;
+            println!("i:{}, ret:{}", i, ret.unwrap());
+            assert_eq!(Some(i + 1), ret);
+        }
+        assert_eq!(None, stm.next().await);
+
         stm.clear();        
     }
+
+    // 简单情况，一个包，带fin
+    #[test]
+    fn test_stream() {
+        let mut task = Task::new(stream_task());
+        assert_eq!(TaskState::Start, task.get_state());
+        dbg!(task.get_state());
+        task.run();
+        assert_eq!(TaskState::End, task.get_state());
+    }
     
-    fn make_pkt_data(seq: u32) -> Rc<Packet> {
+    async fn stream_task_3pkt() {
+        let mut stm = PktStrm::new();
+        // 1 - 10
+        let seq1 = 1;
+        let pkt1 = build_pkt(seq1, false);
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt(seq2, false);
+        let _ = pkt2.decode();
+        // 21 - 30
+        let seq3 = seq2 + pkt2.payload_len();
+        let pkt3 = build_pkt(seq3, true);
+        let _ = pkt3.decode();
+
+        stm.push(pkt2.clone());
+        stm.push(pkt3);
+        stm.push(pkt1.clone());
+
+        for j in 0..3 {
+            for i in 0..10 {
+                let ret = stm.next().await;
+                println!("i:{}, ret:{}", i, ret.unwrap());
+                assert_eq!(Some(i + 1), ret);
+            }
+        }
+        assert_eq!(None, stm.next().await);
+
+        stm.clear();        
+    }
+
+    // 三个包，最后一个包带fin
+    #[test]
+    fn test_stream_3pkt() {
+        let mut task = Task::new(stream_task_3pkt());
+        assert_eq!(TaskState::Start, task.get_state());
+        task.run();
+        assert_eq!(TaskState::End, task.get_state());
+    }
+
+    async fn stream_task_fin() {
+        let mut stm = PktStrm::new();
+        // 1 - 10
+        let seq1 = 1;
+        let pkt1 = build_pkt(seq1, false);
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt(seq2, false);
+        let _ = pkt2.decode();
+        // 21 - 30
+        let seq3 = seq2 + pkt2.payload_len();
+        let pkt3 = build_pkt(seq3, false);
+        let _ = pkt3.decode();
+        // 31 无数据，fin
+        let seq4 = seq3 + pkt3.payload_len();
+        let pkt4 = build_pkt_nodata(seq4, true);
+        let _ = pkt4.decode();
+        
+        stm.push(pkt2.clone());
+        stm.push(pkt3.clone());
+        stm.push(pkt1.clone());
+        stm.push(pkt4);        
+
+        for j in 0..3 {
+            for i in 0..10 {
+                let ret = stm.next().await;
+                println!("i:{}, ret:{}", i, ret.unwrap());
+                assert_eq!(Some(i + 1), ret);
+            }
+        }
+        assert_eq!(None, stm.next().await);
+
+        stm.clear();
+    }
+    
+    // 四个包，最后一个包只带fin
+    #[test]
+    fn test_stream_fin() {
+        let mut task = Task::new(stream_task_fin());
+        assert_eq!(TaskState::Start, task.get_state());
+        task.run();
+        assert_eq!(TaskState::End, task.get_state());
+    }
+
+    async fn stream_task_ack() {
+        let mut stm = PktStrm::new();
+        // 1 - 10
+        let seq1 = 1;
+        let pkt1 = build_pkt(seq1, false);
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt(seq2, false);
+        let _ = pkt2.decode();
+        // 21   ack 对方的seq 123，本包的seq是上一个包+1。载荷为0
+        let ack_pkt_seq = seq2 + pkt2.payload_len();
+        let ack_pkt = build_pkt_ack(ack_pkt_seq, 123);
+        let _ = ack_pkt.decode();        
+        // 21 - 30
+        let seq3 = seq2 + pkt2.payload_len();
+        let pkt3 = build_pkt(seq3, false);
+        let _ = pkt3.decode();
+        // 31 无数据，fin
+        let seq4 = seq3 + pkt3.payload_len();
+        let pkt4 = build_pkt_nodata(seq4, true);
+        let _ = pkt4.decode();
+        
+        stm.push(pkt2.clone());
+        stm.push(pkt3.clone());
+        stm.push(ack_pkt);        
+        stm.push(pkt1.clone());
+        stm.push(pkt4);        
+
+        for j in 0..3 {
+            for i in 0..10 {
+                let ret = stm.next().await;
+                println!("i:{}, ret:{}", i, ret.unwrap());
+                assert_eq!(Some(i + 1), ret);
+            }
+        }
+        assert_eq!(None, stm.next().await);
+        
+        stm.clear();
+    }
+
+    // 中间有纯ack包的情况
+    #[test]    
+    fn test_stream_ack() {
+        let mut task = Task::new(stream_task_ack());
+        assert_eq!(TaskState::Start, task.get_state());
+        task.run();
+        assert_eq!(TaskState::End, task.get_state());
+    }
+
+    async fn stream_task_syn() {
+        let mut stm = PktStrm::new();
+        // syn 包seq占一个
+        let syn_pkt_seq = 1;
+        let syn_pkt = build_pkt_syn(syn_pkt_seq);
+        let _ = syn_pkt.decode();
+        // 1 - 10
+        let seq1 = syn_pkt_seq + 1;
+        let pkt1 = build_pkt(seq1, false);
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt(seq2, false);
+        let _ = pkt2.decode();
+        // 21 - 30
+        let seq3 = seq2 + pkt2.payload_len();
+        let pkt3 = build_pkt(seq3, false);
+        let _ = pkt3.decode();
+        // 31 无数据，fin
+        let seq4 = seq3 + pkt3.payload_len();
+        let pkt4 = build_pkt_nodata(seq4, true);
+        let _ = pkt4.decode();
+
+        stm.push(pkt4);
+        stm.push(pkt2.clone());
+        stm.push(pkt3.clone());
+        stm.push(syn_pkt);
+        stm.push(pkt1.clone());
+
+        for j in 0..3 {
+            for i in 0..10 {
+                dbg!("up next");
+                let ret = stm.next().await;
+                println!("i:{}, ret:{}", i, ret.unwrap());
+                assert_eq!(Some(i + 1), ret);
+            }
+        }
+        assert_eq!(None, stm.next().await);
+        
+        stm.clear();
+    }
+    
+    // syn包。同时也验证了中间中断，需要多次run的情况
+    #[test]    
+    fn test_stream_syn() {
+        let mut task = Task::new(stream_task_syn());
+        assert_eq!(TaskState::Start, task.get_state());
+        task.run();             // 第一次run遇到第一个syn包，返回pending
+        task.run();             // 第二次run到结束
+        assert_eq!(TaskState::End, task.get_state());
+    }
+    
+    fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
         //setup the packet headers
-        let builder = PacketBuilder::
+        let mut builder = PacketBuilder::
         ethernet2([1,2,3,4,5,6],     //source mac
                   [7,8,9,10,11,12]) //destionation mac
             .ipv4([192,168,1,1], //source ip
@@ -470,8 +737,121 @@ mod tests {
                 TcpOptionElement::Noop,
                 TcpOptionElement::MaximumSegmentSize(1234)
             ]).unwrap();
+        if fin {
+            builder = builder.fin();            
+        }
+        
         //payload of the tcp packet
         let payload = [1,2,3,4,5,6,7,8,9,10];
+        //get some memory to store the result
+        let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
+        //serialize
+        //this will automatically set all length fields, checksums and identifiers (ethertype & protocol)
+        builder.write(&mut result, &payload).unwrap();
+        // println!("result len:{}", result.len());
+        
+        Packet::new(1, result.len(), &result)
+    }
+
+    fn make_pkt_data(seq: u32) -> Rc<Packet> {
+        build_pkt(seq, false)
+    }
+
+    fn build_pkt_nodata(seq: u32, fin: bool) -> Rc<Packet> {
+        //setup the packet headers
+        let mut builder = PacketBuilder::
+        ethernet2([1,2,3,4,5,6],     //source mac
+                  [7,8,9,10,11,12]) //destionation mac
+            .ipv4([192,168,1,1], //source ip
+                  [192,168,1,2], //desitionation ip
+                  20)            //time to life
+            .tcp(25,    //source port 
+                 htons(4000),  //desitnation port
+                 htonl(seq),     //sequence number
+                 1024) //window size
+        //set additional tcp header fields
+            .ns() //set the ns flag
+        //supported flags: ns(), fin(), syn(), rst(), psh(), ece(), cwr()
+            .ack(123) //ack flag + the ack number
+            .urg(23) //urg flag + urgent pointer
+            .options(&[
+                TcpOptionElement::Noop,
+                TcpOptionElement::MaximumSegmentSize(1234)
+            ]).unwrap();
+        if fin {
+            builder = builder.fin();            
+        }
+        
+        //payload of the tcp packet
+        let payload = [];
+        //get some memory to store the result
+        let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
+        //serialize
+        //this will automatically set all length fields, checksums and identifiers (ethertype & protocol)
+        builder.write(&mut result, &payload).unwrap();
+        // println!("result len:{}", result.len());
+        
+        Packet::new(1, result.len(), &result)
+    }
+
+    fn build_pkt_ack(seq: u32, ack_seq: u32) -> Rc<Packet> {
+        //setup the packet headers
+        let mut builder = PacketBuilder::
+        ethernet2([1,2,3,4,5,6],     //source mac
+                  [7,8,9,10,11,12]) //destionation mac
+            .ipv4([192,168,1,1], //source ip
+                  [192,168,1,2], //desitionation ip
+                  20)            //time to life
+            .tcp(25,    //source port 
+                 htons(4000),  //desitnation port
+                 htonl(seq),     //sequence number
+                 1024) //window size
+        //set additional tcp header fields
+            .ns() //set the ns flag
+        //supported flags: ns(), fin(), syn(), rst(), psh(), ece(), cwr()
+            .ack(htonl(ack_seq)) //ack flag + the ack number
+            .urg(23) //urg flag + urgent pointer
+            .options(&[
+                TcpOptionElement::Noop,
+                TcpOptionElement::MaximumSegmentSize(1234)
+            ]).unwrap();
+        
+        //payload of the tcp packet
+        let payload = [];
+        //get some memory to store the result
+        let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
+        //serialize
+        //this will automatically set all length fields, checksums and identifiers (ethertype & protocol)
+        builder.write(&mut result, &payload).unwrap();
+        // println!("result len:{}", result.len());
+        
+        Packet::new(1, result.len(), &result)
+    }
+
+    fn build_pkt_syn(seq: u32) -> Rc<Packet> {
+        //setup the packet headers
+        let mut builder = PacketBuilder::
+        ethernet2([1,2,3,4,5,6],     //source mac
+                  [7,8,9,10,11,12]) //destionation mac
+            .ipv4([192,168,1,1], //source ip
+                  [192,168,1,2], //desitionation ip
+                  20)            //time to life
+            .tcp(25,    //source port 
+                 htons(4000),  //desitnation port
+                 htonl(seq),     //sequence number
+                 1024) //window size
+        //set additional tcp header fields
+            .ns() //set the ns flag
+        //supported flags: ns(), fin(), syn(), rst(), psh(), ece(), cwr()
+            .syn()
+            .urg(23) //urg flag + urgent pointer
+            .options(&[
+                TcpOptionElement::Noop,
+                TcpOptionElement::MaximumSegmentSize(1234)
+            ]).unwrap();
+        
+        //payload of the tcp packet
+        let payload = [];
         //get some memory to store the result
         let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
         //serialize

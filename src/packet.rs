@@ -86,6 +86,22 @@ impl Packet {
         }
     }
 
+    pub fn syn(&self) -> bool {
+        if let Some(TransportHeader::Tcp(tcph)) = &self.header.borrow().as_ref().unwrap().transport {
+            tcph.syn
+        } else {
+            false
+        }
+    }
+    
+    pub fn fin(&self) -> bool {
+        if let Some(TransportHeader::Tcp(tcph)) = &self.header.borrow().as_ref().unwrap().transport {
+            tcph.fin
+        } else {
+            false
+        }
+    }
+    
     pub fn payload_len(&self) -> u32 {
         self.header.borrow().as_ref().unwrap().payload_len.try_into().unwrap()
     }

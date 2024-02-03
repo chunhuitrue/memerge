@@ -11,7 +11,7 @@ impl Task {
     pub fn new(future: impl Future<Output = ()> + 'static) -> Task {
         Task { future: Box::pin(future), state: TaskState::Start }
     }
-
+    
     pub fn run(&mut self) {
         if self.state == TaskState::End {
             return;
