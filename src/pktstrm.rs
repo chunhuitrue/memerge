@@ -10,6 +10,7 @@ use crate::util::*;
 use crate::Task;
 use futures_util::{stream::{Stream, StreamExt}};
 use std::{task::Poll};
+use futures::future;
 
 const MAX_CACHE_PKTS: usize = 32;
 
@@ -126,6 +127,14 @@ impl PktStrm {
     }
 
     pub fn timeout(&self) {
+    }
+
+    pub async fn readn(&mut self, num: usize) -> Vec<u8> {
+        self.take(num).collect::<Vec<u8>>().await
+    }
+
+    pub async fn readline(&mut self) -> Vec<u8> {
+        self.take_while(|x| future::ready(*x != b'\n')).collect::<Vec<u8>>().await
     }
 }
 
@@ -715,6 +724,58 @@ mod tests {
         task.run();             // 第二次run到结束
         assert_eq!(TaskState::End, task.get_state());
     }
+
+    async fn readn_task() {
+        let mut stm = PktStrm::new();
+        // syn 包seq占一个
+        let syn_pkt_seq = 1;
+        let syn_pkt = build_pkt_syn(syn_pkt_seq);
+        let _ = syn_pkt.decode();
+        // 1 - 10
+        let seq1 = syn_pkt_seq + 1;
+        let pkt1 = build_pkt(seq1, false);
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt(seq2, false);
+        let _ = pkt2.decode();
+        // 21 - 30
+        let seq3 = seq2 + pkt2.payload_len();
+        let pkt3 = build_pkt(seq3, false);
+        let _ = pkt3.decode();
+        // 31 无数据，fin
+        let seq4 = seq3 + pkt3.payload_len();
+        let pkt4 = build_pkt_nodata(seq4, true);
+        let _ = pkt4.decode();
+
+        stm.push(pkt4);
+        stm.push(pkt2.clone());
+        stm.push(pkt3.clone());
+        stm.push(syn_pkt);
+        stm.push(pkt1.clone());
+
+        let res = stm.readn(5).await;
+        assert_eq!(vec![1,2,3,4,5], res);
+        let res = stm.readn(10).await;
+        assert_eq!(vec![6,7,8,9,10,1,2,3,4,5], res);
+        let res = stm.readn(15).await;
+        assert_eq!(vec![6,7,8,9,10,1,2,3,4,5,6,7,8,9,10], res);
+        let res = stm.readn(10).await;
+        assert_eq!(Vec::<u8>::new(), res);
+        
+        stm.clear();        
+    }
+    
+    // 4个包，还带syn，fin。看看是否可以跨包readn
+    #[test]    
+    fn test_readn() {
+        let mut task = Task::new(readn_task());
+        assert_eq!(TaskState::Start, task.get_state());
+        task.run();             // 第一次run遇到第一个syn包，返回pending
+        task.run();             // 第二次run到结束
+        assert_eq!(TaskState::End, task.get_state());
+    }    
+
     
     fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
         //setup the packet headers
