@@ -134,7 +134,13 @@ impl PktStrm {
     }
 
     pub async fn readline(&mut self) -> Vec<u8> {
-        self.take_while(|x| future::ready(*x != b'\n')).collect::<Vec<u8>>().await
+        let mut res = self.take_while(|x| future::ready(*x != b'\n')).collect::<Vec<u8>>().await;
+        if res.is_empty() {
+            res
+        } else {
+            res.push(b'\n');
+            res
+        }
     }
 }
 
@@ -776,6 +782,82 @@ mod tests {
         assert_eq!(TaskState::End, task.get_state());
     }    
 
+    async fn readline_task() {
+        let mut stm = PktStrm::new();
+        // syn 包seq占一个
+        let syn_pkt_seq = 1;
+        let syn_pkt = build_pkt_syn(syn_pkt_seq);
+        let _ = syn_pkt.decode();
+        // 1 - 10
+        let seq1 = syn_pkt_seq + 1;
+        let pkt1 = build_pkt_line(seq1, *b"1234\r\n5678");
+        let _ = pkt1.decode();
+        // 11 - 20
+        let seq2 = seq1 + pkt1.payload_len();
+        let pkt2 = build_pkt_line(seq2, *b"1234\r\n56\r\n");
+        let _ = pkt2.decode();
+         // 21 无数据，fin
+        let seq4 = seq2 + pkt2.payload_len();
+        let pkt4 = build_pkt_nodata(seq4, true);
+        let _ = pkt4.decode();
+
+        stm.push(pkt4);
+        stm.push(pkt2.clone());
+        stm.push(syn_pkt);
+        stm.push(pkt1.clone());
+
+        let res = stm.readline().await;
+        assert_eq!(*b"1234\r\n", res.as_slice());
+        let res = stm.readline().await;
+        assert_eq!(*b"56781234\r\n", res.as_slice());
+        let res = stm.readline().await;
+        assert_eq!(*b"56\r\n", res.as_slice());
+        let res = stm.readline().await;        
+        assert_eq!(Vec::<u8>::new(), res);
+        
+        stm.clear();        
+    }
+
+    // 跨包的行
+    #[test]    
+    fn test_readline() {
+        let mut task = Task::new(readline_task());
+        assert_eq!(TaskState::Start, task.get_state());
+        task.run();             // 第一次run遇到第一个syn包，返回pending
+        task.run();             // 第二次run到结束
+        assert_eq!(TaskState::End, task.get_state());
+    }    
+    
+    fn build_pkt_line(seq: u32, payload: [u8;10]) -> Rc<Packet> {
+        //setup the packet headers
+        let mut builder = PacketBuilder::
+        ethernet2([1,2,3,4,5,6],     //source mac
+                  [7,8,9,10,11,12]) //destionation mac
+            .ipv4([192,168,1,1], //source ip
+                  [192,168,1,2], //desitionation ip
+                  20)            //time to life
+            .tcp(25,    //source port 
+                 htons(4000),  //desitnation port
+                 htonl(seq),     //sequence number
+                 1024) //window size
+        //set additional tcp header fields
+            .ns() //set the ns flag
+        //supported flags: ns(), fin(), syn(), rst(), psh(), ece(), cwr()
+            .ack(123) //ack flag + the ack number
+            .urg(23) //urg flag + urgent pointer
+            .options(&[
+                TcpOptionElement::Noop,
+                TcpOptionElement::MaximumSegmentSize(1234)
+            ]).unwrap();
+        
+        //get some memory to store the result
+        let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
+        //serialize
+        //this will automatically set all length fields, checksums and identifiers (ethertype & protocol)
+        builder.write(&mut result, &payload).unwrap();
+        
+        Packet::new(1, result.len(), &result)
+    }
     
     fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
         //setup the packet headers
