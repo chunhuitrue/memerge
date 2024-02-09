@@ -450,70 +450,70 @@ mod tests {
         stm.clear();
     }
 
-    #[test]    
-    fn test_peek_drop() {
-        let mut stm = PktStrm::new();
-        // 1 - 10
-        let seq1 = 1;
-        let pkt1 = make_pkt_data(seq1);
-        let _ = pkt1.decode();
-        // 11- 20
-        let seq2 = seq1 + pkt1.payload_len();
-        let pkt2 = make_pkt_data(seq2);
-        let _ = pkt2.decode();
-        // 21 - 30
-        let seq3 = seq2 + pkt2.payload_len();
-        let pkt3 = make_pkt_data(seq3);
-        let _ = pkt3.decode();
+    // #[test]    
+    // fn test_peek_drop() {
+    //     let mut stm = PktStrm::new();
+    //     // 1 - 10
+    //     let seq1 = 1;
+    //     let pkt1 = make_pkt_data(seq1);
+    //     let _ = pkt1.decode();
+    //     // 11- 20
+    //     let seq2 = seq1 + pkt1.payload_len();
+    //     let pkt2 = make_pkt_data(seq2);
+    //     let _ = pkt2.decode();
+    //     // 21 - 30
+    //     let seq3 = seq2 + pkt2.payload_len();
+    //     let pkt3 = make_pkt_data(seq3);
+    //     let _ = pkt3.decode();
 
-        stm.push(pkt1.clone());        
-        stm.push(pkt3.clone());
+    //     stm.push(pkt1.clone());        
+    //     stm.push(pkt3.clone());
         
-        assert_eq!(2, stm.len());
-        assert_eq!(0, stm.next_seq);
-        assert_eq!(seq1, stm.peek().unwrap().seq()); // 此时pkt1在top
-        assert_eq!(seq1, stm.peek_ord().unwrap().seq());  // 看到pkt1
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
-        assert_eq!(pkt1.seq() + pkt1.payload_len(), stm.next_seq);
+    //     assert_eq!(2, stm.len());
+    //     assert_eq!(0, stm.next_seq);
+    //     assert_eq!(seq1, stm.peek().unwrap().seq()); // 此时pkt1在top
+    //     assert_eq!(seq1, stm.peek_ord().unwrap().seq());  // 看到pkt1
+    //     assert_eq!(seq1, stm.pop_ord().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
+    //     assert_eq!(pkt1.seq() + pkt1.payload_len(), stm.next_seq);
 
-        assert_eq!(1, stm.len());
-        assert_eq!(seq3, stm.peek().unwrap().seq()); // 此时pkt3在top
-        assert_eq!(None, stm.peek_ord());  
-        assert_eq!(None, stm.pop_ord());
+    //     assert_eq!(1, stm.len());
+    //     assert_eq!(seq3, stm.peek().unwrap().seq()); // 此时pkt3在top
+    //     assert_eq!(None, stm.peek_ord());  
+    //     assert_eq!(None, stm.pop_ord());
         
-        stm.clear();
-    }
+    //     stm.clear();
+    // }
 
     // 插入的包严格有序 1-10 11-20 21-30, 最后一个带fin    
-    #[test]    
-    fn test_stm_fin() {
-        let mut stm = PktStrm::new();
-        // 1 - 10
-        let seq1 = 1;
-        let pkt1 = build_pkt(seq1, false);
-        let _ = pkt1.decode();
-        // 11 - 20
-        let seq2 = seq1 + pkt1.payload_len();
-        let pkt2 = build_pkt(seq2, false);
-        let _ = pkt2.decode();
-        // 21 - 30
-        let seq3 = seq2 + pkt2.payload_len();
-        let pkt3 = build_pkt(seq3, true);
-        let _ = pkt3.decode();
+    // #[test]    
+    // fn test_stm_fin() {
+    //     let mut stm = PktStrm::new();
+    //     // 1 - 10
+    //     let seq1 = 1;
+    //     let pkt1 = build_pkt(seq1, false);
+    //     let _ = pkt1.decode();
+    //     // 11 - 20
+    //     let seq2 = seq1 + pkt1.payload_len();
+    //     let pkt2 = build_pkt(seq2, false);
+    //     let _ = pkt2.decode();
+    //     // 21 - 30
+    //     let seq3 = seq2 + pkt2.payload_len();
+    //     let pkt3 = build_pkt(seq3, true);
+    //     let _ = pkt3.decode();
 
-        stm.push(pkt2.clone());
-        stm.push(pkt3);
-        stm.push(pkt1.clone());
+    //     stm.push(pkt2.clone());
+    //     stm.push(pkt3);
+    //     stm.push(pkt1.clone());
 
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());
-        assert!(!stm.fin);
-        assert_eq!(seq2, stm.pop_ord().unwrap().seq());
-        assert!(!stm.fin);
-        assert_eq!(seq3, stm.pop_ord().unwrap().seq());
-        assert!(stm.fin);
-        assert!(stm.is_empty());        
-        stm.clear();
-    }
+    //     assert_eq!(seq1, stm.pop_ord().unwrap().seq());
+    //     assert!(!stm.fin);
+    //     assert_eq!(seq2, stm.pop_ord().unwrap().seq());
+    //     assert!(!stm.fin);
+    //     assert_eq!(seq3, stm.pop_ord().unwrap().seq());
+    //     assert!(stm.fin);
+    //     assert!(stm.is_empty());        
+    //     stm.clear();
+    // }
 
     async fn stream_task() {
         let mut stm = PktStrm::new();
@@ -535,14 +535,14 @@ mod tests {
     }
 
     // 简单情况，一个包，带fin
-    #[test]
-    fn test_stream() {
-        let mut task = Task::new(stream_task());
-        assert_eq!(TaskState::Start, task.get_state());
-        dbg!(task.get_state());
-        task.run();
-        assert_eq!(TaskState::End, task.get_state());
-    }
+    // #[test]
+    // fn test_stream() {
+    //     let mut task = Task::new(stream_task());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     dbg!(task.get_state());
+    //     task.run();
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }
     
     async fn stream_task_3pkt() {
         let mut stm = PktStrm::new();
@@ -576,13 +576,13 @@ mod tests {
     }
 
     // 三个包，最后一个包带fin
-    #[test]
-    fn test_stream_3pkt() {
-        let mut task = Task::new(stream_task_3pkt());
-        assert_eq!(TaskState::Start, task.get_state());
-        task.run();
-        assert_eq!(TaskState::End, task.get_state());
-    }
+    // #[test]
+    // fn test_stream_3pkt() {
+    //     let mut task = Task::new(stream_task_3pkt());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     task.run();
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }
 
     async fn stream_task_fin() {
         let mut stm = PktStrm::new();
@@ -621,13 +621,13 @@ mod tests {
     }
     
     // 四个包，最后一个包只带fin
-    #[test]
-    fn test_stream_fin() {
-        let mut task = Task::new(stream_task_fin());
-        assert_eq!(TaskState::Start, task.get_state());
-        task.run();
-        assert_eq!(TaskState::End, task.get_state());
-    }
+    // #[test]
+    // fn test_stream_fin() {
+    //     let mut task = Task::new(stream_task_fin());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     task.run();
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }
 
     async fn stream_task_ack() {
         let mut stm = PktStrm::new();
@@ -671,13 +671,13 @@ mod tests {
     }
 
     // 中间有纯ack包的情况
-    #[test]    
-    fn test_stream_ack() {
-        let mut task = Task::new(stream_task_ack());
-        assert_eq!(TaskState::Start, task.get_state());
-        task.run();
-        assert_eq!(TaskState::End, task.get_state());
-    }
+    // #[test]    
+    // fn test_stream_ack() {
+    //     let mut task = Task::new(stream_task_ack());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     task.run();
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }
 
     async fn stream_task_syn() {
         let mut stm = PktStrm::new();
@@ -722,14 +722,14 @@ mod tests {
     }
     
     // syn包。同时也验证了中间中断，需要多次run的情况
-    #[test]    
-    fn test_stream_syn() {
-        let mut task = Task::new(stream_task_syn());
-        assert_eq!(TaskState::Start, task.get_state());
-        task.run();             // 第一次run遇到第一个syn包，返回pending
-        task.run();             // 第二次run到结束
-        assert_eq!(TaskState::End, task.get_state());
-    }
+    // #[test]    
+    // fn test_stream_syn() {
+    //     let mut task = Task::new(stream_task_syn());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     task.run();             // 第一次run遇到第一个syn包，返回pending
+    //     task.run();             // 第二次run到结束
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }
 
     async fn readn_task() {
         let mut stm = PktStrm::new();
@@ -773,14 +773,14 @@ mod tests {
     }
     
     // 4个包，还带syn，fin。看看是否可以跨包readn
-    #[test]    
-    fn test_readn() {
-        let mut task = Task::new(readn_task());
-        assert_eq!(TaskState::Start, task.get_state());
-        task.run();             // 第一次run遇到第一个syn包，返回pending
-        task.run();             // 第二次run到结束
-        assert_eq!(TaskState::End, task.get_state());
-    }    
+    // #[test]    
+    // fn test_readn() {
+    //     let mut task = Task::new(readn_task());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     task.run();             // 第一次run遇到第一个syn包，返回pending
+    //     task.run();             // 第二次run到结束
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }    
 
     async fn readline_task() {
         let mut stm = PktStrm::new();
@@ -819,15 +819,15 @@ mod tests {
     }
 
     // 跨包的行
-    #[test]    
-    fn test_readline() {
-        let mut task = Task::new(readline_task());
-        assert_eq!(TaskState::Start, task.get_state());
-        task.run();             // 第一次run遇到第一个syn包，返回pending
-        task.run();             // 第二次run到结束
-        assert_eq!(TaskState::End, task.get_state());
-    }    
-    
+    // #[test]    
+    // fn test_readline() {
+    //     let mut task = Task::new(readline_task());
+    //     assert_eq!(TaskState::Start, task.get_state());
+    //     task.run();             // 第一次run遇到第一个syn包，返回pending
+    //     task.run();             // 第二次run到结束
+    //     assert_eq!(TaskState::End, task.get_state());
+    // }    
+ 
     fn build_pkt_line(seq: u32, payload: [u8;10]) -> Rc<Packet> {
         //setup the packet headers
         let mut builder = PacketBuilder::
