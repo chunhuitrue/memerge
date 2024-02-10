@@ -73,7 +73,6 @@ mod tests {
     use crate::{ntohs, ntohl, htons, htonl};
 
     struct TestTask;
-
     impl Parser for TestTask {
         fn parse(&self, mut rx: mpsc::Receiver<Rc<Packet>>) -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
