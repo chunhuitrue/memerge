@@ -12,6 +12,7 @@ use crate::Parser;
 use futures_util::{stream::{Stream, StreamExt}};
 use std::{task::Poll};
 use futures::future;
+use std::cell::RefCell;
 
 const MAX_CACHE_PKTS: usize = 32;
 
@@ -214,11 +215,13 @@ impl Ord for SeqPacket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use etherparse::*;    
+    use etherparse::*;
+    use futures_util::lock::Mutex;    
     use crate::{ntohs, ntohl, htons, htonl};
-    use core::{future::Future};    
     use crate::Task;
     use crate::TaskState;
+    use core::{future::Future, pin::Pin, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
+    use std::rc::Rc;
     
     #[test]
     fn test_pkt() {
@@ -515,46 +518,22 @@ mod tests {
         assert!(stm.is_empty());        
         stm.clear();
     }
-
+    
     struct StreamTask;
     impl Parser for StreamTask {
-        fn parse(&self, mut rx: futures_channel::mpsc::Receiver<Rc<Packet>>) -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
+        #[allow(clippy::await_holding_refcell_ref)]
+        fn parser(&self, stream: Rc<RefCell<PktStrm>>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
-                let mut stm = PktStrm::new();                
-                while let Some(pkt) = rx.next().await {
-                    stm.push(pkt);
-
-                    for i in 0..10 {
-                        let ret = stm.next().await;
-                        println!("i:{}, ret:{}", i, ret.unwrap());
-                        assert_eq!(Some(i + 1), ret);
-                    }
-                    assert_eq!(None, stm.next().await);
-                    break;
+                let mut stm = stream.borrow_mut();
+                for i in 0..10 {
+                    let ret = stm.next().await;
+                    println!("i:{}, ret:{}", i, ret.unwrap());
+                    assert_eq!(Some(i + 1), ret);
                 }
-                stm.clear();
+                assert_eq!(None, stm.next().await);
             })
         }
     }
-
-    // async fn stream_task() {
-    //     let mut stm = PktStrm::new();
-    //     // 1 - 10
-    //     let seq1 = 1;
-    //     let pkt1 = build_pkt(seq1, true);
-    //     let _ = pkt1.decode();
-
-    //     stm.push(pkt1);
-
-    //     for i in 0..10 {
-    //         let ret = stm.next().await;
-    //         println!("i:{}, ret:{}", i, ret.unwrap());
-    //         assert_eq!(Some(i + 1), ret);
-    //     }
-    //     assert_eq!(None, stm.next().await);
-
-    //     stm.clear();        
-    // }
     
     // 简单情况，一个包，带fin
     #[test]
@@ -570,54 +549,26 @@ mod tests {
         assert_eq!(TaskState::End, task.get_state());
     }
     
-    // --------
     struct StreamTask3pkt;
     impl Parser for StreamTask3pkt {
-        fn parse(&self, mut rx: futures_channel::mpsc::Receiver<Rc<Packet>>) -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
+        // #[allow(clippy::await_holding_refcell_ref)]
+        fn parser(&self, stream: Rc<RefCell<PktStrm>>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
-                let mut stm = PktStrm::new();                
-                while let Some(pkt) = rx.next().await {
-                    stm.push(pkt);
-
-                    
-                    break;
+                let mut stm = stream.borrow_mut();                
+                for j in 0..3 {
+                    println!("j:{}", j);
+                    for i in 0..10 {
+                        println!("  up next");
+                        let ret = stm.next().await;
+                        println!("  i:{}, ret:{}", i, ret.unwrap());
+                        assert_eq!(Some(i + 1), ret);
+                    }
                 }
-                stm.clear();
+                // assert_eq!(None, stm.next().await);                
             })
         }
     }
     
-    async fn stream_task_3pkt() {
-        let mut stm = PktStrm::new();
-        // 1 - 10
-        let seq1 = 1;
-        let pkt1 = build_pkt(seq1, false);
-        let _ = pkt1.decode();
-        // 11 - 20
-        let seq2 = seq1 + pkt1.payload_len();
-        let pkt2 = build_pkt(seq2, false);
-        let _ = pkt2.decode();
-        // 21 - 30
-        let seq3 = seq2 + pkt2.payload_len();
-        let pkt3 = build_pkt(seq3, true);
-        let _ = pkt3.decode();
-
-        stm.push(pkt2.clone());
-        stm.push(pkt3);
-        stm.push(pkt1.clone());
-
-        for j in 0..3 {
-            for i in 0..10 {
-                let ret = stm.next().await;
-                println!("i:{}, ret:{}", i, ret.unwrap());
-                assert_eq!(Some(i + 1), ret);
-            }
-        }
-        assert_eq!(None, stm.next().await);
-
-        stm.clear();        
-    }
-
     // 三个包，最后一个包带fin
     #[test]
     fn test_stream_3pkt() {
@@ -636,9 +587,12 @@ mod tests {
         
         let mut task = Task::new(StreamTask3pkt);
         assert_eq!(TaskState::Start, task.get_state());
-        task.run(pkt2);
-        task.run(pkt3);
+        println!("run 1");
         task.run(pkt1);
+        println!("run 2");        
+        task.run(pkt3);
+        println!("run 3");
+        task.run(pkt2);
         assert_eq!(TaskState::End, task.get_state());
     }
 

@@ -2,13 +2,15 @@
 
 use std::pin::Pin;
 use futures::Future;
-use futures_channel::mpsc;
 use crate::Packet;
+use crate::PktStrm;
 use std::rc::Rc;
+use futures::lock::Mutex;
+use std::cell::RefCell;
 
 pub mod smtp;
 pub mod http;
 
 pub trait Parser { 
-    fn parse(&self, rx: mpsc::Receiver<Rc<Packet>>) -> Pin<Box<dyn Future<Output = ()>>>;    
+    fn parser(&self, stream: Rc<RefCell<PktStrm>>) -> Pin<Box<dyn Future<Output = ()>>>;
 }

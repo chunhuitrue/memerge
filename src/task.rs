@@ -2,21 +2,23 @@
 
 use core::{future::Future, pin::Pin, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
 use std::rc::Rc;
-use futures_channel::mpsc;
 use crate::Packet;
 use crate::Parser;
+use crate::PktStrm;
+use futures::lock::Mutex;
+use std::cell::RefCell;
 
 pub struct Task {
     parser: Pin<Box<dyn Future<Output = ()>>>,
     state: TaskState,
-    sender: mpsc::Sender<Rc<Packet>>,
+    stream: Rc<RefCell<PktStrm>>,    
 }
 
 impl Task {
     pub fn new(parser: impl Parser) -> Task {
-        let (tx, rx) = mpsc::channel(1);
-        let parser = parser.parse(rx);        
-        Task { parser, state: TaskState::Start, sender: tx }
+        let stream = Rc::new(RefCell::new(PktStrm::new()));
+        let parser = parser.parser(stream.clone());
+        Task { parser, state: TaskState::Start, stream: stream.clone() }
     }
     
     pub fn run(&mut self, pkt: Rc<Packet>) {
@@ -24,9 +26,7 @@ impl Task {
             return;
         }
 
-        if let Err(e) = self.sender.try_send(pkt) {
-            return;
-        }
+        self.stream.borrow_mut().push(pkt);
         
         let waker = dummy_waker();
         let mut context = Context::from_waker(&waker);
@@ -71,12 +71,12 @@ mod tests {
     use etherparse::*;
     use futures_util::StreamExt;    
     use crate::{ntohs, ntohl, htons, htonl};
-
+    use futures::lock::Mutex;
+    
     struct TestTask;
     impl Parser for TestTask {
-        fn parse(&self, mut rx: mpsc::Receiver<Rc<Packet>>) -> Pin<Box<dyn Future<Output = ()>>> {
+        fn parser(&self, stream: Rc<RefCell<PktStrm>>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
-                let Some(_pkt) = rx.next().await else { return; };
                 let number1 = async_number1().await;
                 let number2 = async_number2().await;
                 assert_eq!(1, number1);
@@ -95,11 +95,16 @@ mod tests {
 
     #[test]
     fn test_task() {
+        let pkt1 = build_pkt(1, false);
+        let _ = pkt1.decode();
+        let pkt2 = build_pkt(1, false);
+        let _ = pkt2.decode();
+        
         let mut task = Task::new(TestTask);
         assert_eq!(TaskState::Start, task.get_state());        
-        task.run(build_pkt(1, false));
+        task.run(pkt1);
         assert_eq!(TaskState::End, task.get_state());
-        task.run(build_pkt(1, false));
+        task.run(pkt2);
         assert_eq!(TaskState::End, task.get_state());        
     }
 
