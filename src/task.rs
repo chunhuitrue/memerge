@@ -5,21 +5,18 @@ use std::rc::Rc;
 use crate::Packet;
 use crate::Parser;
 use crate::PktStrm;
-use futures::lock::Mutex;
-
-use std::cell::RefCell;
-use std::cell::UnsafeCell;
 
 pub struct Task {
     parser: Pin<Box<dyn Future<Output = ()>>>,
     state: TaskState,
-    stream: Rc<UnsafeCell<PktStrm>>,
+    stream: Box<PktStrm>,
 }
 
 impl Task {
     pub fn new(parser: impl Parser) -> Task {
-        let stream = Rc::new(UnsafeCell::new(PktStrm::new()));        
-        let parser = parser.parser(stream.clone());
+        let stream = Box::new(PktStrm::new());
+        let ptr_stream: *const PktStrm = &*stream;
+        let parser = parser.parser(ptr_stream);
         Task { parser, state: TaskState::Start, stream }
     }
     
@@ -28,18 +25,7 @@ impl Task {
             return;
         }
 
-         // let stm = self.stream.get_mut();
-        
-        // let stream = Rc::make_mut(&mut self.stream);
-        // let stm = unsafe { &mut *stream.get() };
-        
-        // let stream = Rc::get_mut(&mut self.stream).unwrap();
-        // let stm = unsafe { &mut *stream.get() };
-        
-        // let stream = Rc::try_unwrap(self.stream).ok().unwrap();
-        // let mut stm = unsafe { stream.into_inner() };
-
-        // stm.push(pkt);
+        self.stream.push(pkt);
         
         let waker = dummy_waker();
         let mut context = Context::from_waker(&waker);
@@ -84,42 +70,47 @@ mod tests {
     use etherparse::*;
     use futures_util::StreamExt;    
     use crate::{ntohs, ntohl, htons, htonl};
-    use futures::lock::Mutex;
     
-    // struct TestTask;
-    // impl Parser for TestTask {
-    //     fn parser(&self, stream: Rc<RefCell<PktStrm>>) -> Pin<Box<dyn Future<Output = ()>>> {        
-    //         Box::pin(async move {
-    //             let number1 = async_number1().await;
-    //             let number2 = async_number2().await;
-    //             assert_eq!(1, number1);
-    //             assert_eq!(2, number2);
-    //         })
-    //     }
-    // }
+    struct TestTask;
+    impl Parser for TestTask {
+        fn parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
+            Box::pin(async move {
+                let mut stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+                
+                let ret = stream_ref.next().await;
+                assert_eq!(Some(1), ret);
+                let number1 = async_number1().await;
+                let number2 = async_number2().await;
+                assert_eq!(1, number1);
+                assert_eq!(2, number2);
+            })
+        }
+    }
     
-    // async fn async_number1() -> u32 {
-    //     1
-    // }
+    async fn async_number1() -> u32 {
+        1
+    }
 
-    // async fn async_number2() -> u32 {
-    //     2
-    // }
+    async fn async_number2() -> u32 {
+        2
+    }
 
-    // #[test]
-    // fn test_task() {
-    //     let pkt1 = build_pkt(1, false);
-    //     let _ = pkt1.decode();
-    //     let pkt2 = build_pkt(1, false);
-    //     let _ = pkt2.decode();
+    #[test]
+    fn test_task() {
+        let pkt1 = build_pkt(1, false);
+        let _ = pkt1.decode();
+        let pkt2 = build_pkt(1, false);
+        let _ = pkt2.decode();
         
-    //     let mut task = Task::new(TestTask);
-    //     assert_eq!(TaskState::Start, task.get_state());        
-    //     task.run(pkt1);
-    //     assert_eq!(TaskState::End, task.get_state());
-    //     task.run(pkt2);
-    //     assert_eq!(TaskState::End, task.get_state());        
-    // }
+        let mut task = Task::new(TestTask);
+        println!("after task new");
+        assert_eq!(TaskState::Start, task.get_state());        
+        task.run(pkt1);
+        assert_eq!(TaskState::End, task.get_state());
+        task.run(pkt2);
+        assert_eq!(TaskState::End, task.get_state());        
+    }
 
     fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
         //setup the packet headers
