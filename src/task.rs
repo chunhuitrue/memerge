@@ -2,6 +2,7 @@
 
 use core::{future::Future, pin::Pin, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
 use std::rc::Rc;
+use std::fmt;
 use crate::Packet;
 use crate::PktDirection;
 use crate::Parser;
@@ -115,6 +116,21 @@ impl Task {
             PktDirection::BiDirection => self.bdir_state,
             PktDirection::Unknown => TaskState::Error
         }
+    }
+}
+
+impl fmt::Debug for Task {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Task")
+            .field("c2s_stream", &self.c2s_stream)
+            .field("s2c_stream", &self.s2c_stream)
+            .field("c2s_parser", &"c2s_parser")
+            .field("s2c_parser", &"s2c_parser")
+            .field("bdir_parser", &"bidr_parser")
+            .field("c2s_state", &self.c2s_state)
+            .field("s2c_state", &self.s2c_state)
+            .field("bdir_state", &self.bdir_state)            
+            .finish()
     }
 }
 
