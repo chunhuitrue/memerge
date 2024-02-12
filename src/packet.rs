@@ -10,6 +10,14 @@ use crate::util::*;
 pub const MAX_PACKET_LEN: usize = 2048;
 
 #[derive(Eq, PartialEq, Clone)]
+pub enum PktDirection {
+    Client2Server,
+    Server2Client,
+    BiDirection,
+    Unknown
+}
+
+#[derive(Eq, PartialEq, Clone)]
 pub struct PktHeader {
     pub link: Option<Ethernet2Header>,
     pub vlan: Option<VlanHeader>,

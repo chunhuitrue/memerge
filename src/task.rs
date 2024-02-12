@@ -3,51 +3,126 @@
 use core::{future::Future, pin::Pin, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
 use std::rc::Rc;
 use crate::Packet;
+use crate::PktDirection;
 use crate::Parser;
 use crate::PktStrm;
 
 pub struct Task {
-    parser: Pin<Box<dyn Future<Output = ()>>>,
-    state: TaskState,
-    stream: Box<PktStrm>,
+    c2s_stream: Box<PktStrm>,
+    s2c_stream: Box<PktStrm>,    
+    c2s_parser: Pin<Box<dyn Future<Output = ()>>>,
+    s2c_parser: Pin<Box<dyn Future<Output = ()>>>,
+    bdir_parser: Pin<Box<dyn Future<Output = ()>>>,
+    c2s_state: TaskState,
+    s2c_state: TaskState,
+    bdir_state: TaskState,    
 }
 
 impl Task {
     pub fn new(parser: impl Parser) -> Task {
-        let stream = Box::new(PktStrm::new());
-        let ptr_stream: *const PktStrm = &*stream;
-        let parser = parser.parser(ptr_stream);
-        Task { parser, state: TaskState::Start, stream }
+        let c2s_stream = Box::new(PktStrm::new());
+        let pc2s_stream: *const PktStrm = &*c2s_stream;
+        let c2s_parser = parser.c2s_parser(pc2s_stream);
+
+        let s2c_stream = Box::new(PktStrm::new());
+        let ps2c_stream: *const PktStrm = &*s2c_stream;
+        let s2c_parser = parser.s2c_parser(ps2c_stream);
+
+        let bdir_parser = parser.bdir_parser(pc2s_stream, ps2c_stream);
+        
+        Task {
+            c2s_stream,
+            s2c_stream,
+            c2s_parser,
+            s2c_parser,
+            bdir_parser,
+            c2s_state: TaskState::Start,
+            s2c_state: TaskState::Start,
+            bdir_state: TaskState::Start,
+        }
     }
     
-    pub fn run(&mut self, pkt: Rc<Packet>) {
-        if self.state == TaskState::End {
+    pub fn run(&mut self, pkt: Rc<Packet>, pkt_dir: PktDirection) {    
+        match pkt_dir {
+            PktDirection::Client2Server => {
+                self.c2s_stream.push(pkt);                
+                self.c2s_run();
+            }
+            PktDirection::Server2Client => {
+                self.s2c_stream.push(pkt);
+                self.s2c_run();
+            }
+            _ => return
+        }
+        self.bdir_run();
+    }
+    
+    fn c2s_run(&mut self) {
+        if self.c2s_state == TaskState::End {
             return;
         }
 
-        self.stream.push(pkt);
-        
         let waker = dummy_waker();
         let mut context = Context::from_waker(&waker);
-        match self.poll(&mut context) {
-            Poll::Ready(()) => { self.state = TaskState::End }
+        match self.c2s_poll(&mut context) {
+            Poll::Ready(()) => { self.c2s_state = TaskState::End }
+            Poll::Pending => {}
+        }
+    }
+
+    fn s2c_run(&mut self) {
+        if self.s2c_state == TaskState::End {
+            return;
+        }
+
+        let waker = dummy_waker();
+        let mut context = Context::from_waker(&waker);
+        match self.s2c_poll(&mut context) {
+            Poll::Ready(()) => { self.s2c_state = TaskState::End }
+            Poll::Pending => {}
+        }
+    }
+
+    fn bdir_run(&mut self) {
+        if self.bdir_state == TaskState::End {
+            return;
+        }
+
+        let waker = dummy_waker();
+        let mut context = Context::from_waker(&waker);
+        match self.bdir_poll(&mut context) {
+            Poll::Ready(()) => { self.bdir_state = TaskState::End }
             Poll::Pending => {}
         }
     }
     
-    fn poll(&mut self, context: &mut Context) -> Poll<()> {
-        self.parser.as_mut().poll(context)
+    fn c2s_poll(&mut self, context: &mut Context) -> Poll<()> {
+        self.c2s_parser.as_mut().poll(context)
     }
 
-    pub fn get_state(&self) -> TaskState {
-        self.state
+    fn s2c_poll(&mut self, context: &mut Context) -> Poll<()> {
+        self.s2c_parser.as_mut().poll(context)
+    }
+
+    fn bdir_poll(&mut self, context: &mut Context) -> Poll<()> {
+        self.bdir_parser.as_mut().poll(context)
+    }
+    
+    pub fn get_state(&self, dir: PktDirection) -> TaskState {
+        match dir {
+            PktDirection::Client2Server => self.c2s_state,
+            PktDirection::Server2Client => self.s2c_state,
+            PktDirection::BiDirection => self.bdir_state,
+            PktDirection::Unknown => TaskState::Error
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TaskState {
     Start,
-    End
+    End,
+    Error
 }
 
 fn dummy_raw_waker() -> RawWaker {
@@ -70,14 +145,15 @@ mod tests {
     use etherparse::*;
     use futures_util::StreamExt;    
     use crate::{ntohs, ntohl, htons, htonl};
+    use crate::PktDirection;
     
     struct TestTask;
     impl Parser for TestTask {
-        fn parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 let mut stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-                
+
                 let ret = stream_ref.next().await;
                 assert_eq!(Some(1), ret);
                 let number1 = async_number1().await;
@@ -96,20 +172,21 @@ mod tests {
         2
     }
 
-    #[test]
+    #[test] #[cfg(not(miri))]
     fn test_task() {
         let pkt1 = build_pkt(1, false);
         let _ = pkt1.decode();
         let pkt2 = build_pkt(1, false);
         let _ = pkt2.decode();
-        
+
+        let dir = PktDirection::Client2Server;
         let mut task = Task::new(TestTask);
         println!("after task new");
-        assert_eq!(TaskState::Start, task.get_state());        
-        task.run(pkt1);
-        assert_eq!(TaskState::End, task.get_state());
-        task.run(pkt2);
-        assert_eq!(TaskState::End, task.get_state());        
+        assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+        task.run(pkt1, dir.clone());
+        assert_eq!(TaskState::End, task.get_state(dir.clone()));
+        task.run(pkt2, dir.clone());
+        assert_eq!(TaskState::End, task.get_state(dir));
     }
 
     fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
