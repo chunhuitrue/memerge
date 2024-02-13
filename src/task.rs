@@ -9,111 +9,117 @@ use crate::Parser;
 use crate::PktStrm;
 
 pub struct Task {
-    c2s_stream: Box<PktStrm>,
-    s2c_stream: Box<PktStrm>,    
-    c2s_parser: Pin<Box<dyn Future<Output = ()>>>,
-    s2c_parser: Pin<Box<dyn Future<Output = ()>>>,
-    bdir_parser: Pin<Box<dyn Future<Output = ()>>>,
-    c2s_state: TaskState,
-    s2c_state: TaskState,
-    bdir_state: TaskState,    
+    stream_c2s: Box<PktStrm>,
+    stream_s2c: Box<PktStrm>,
+    
+    stream_c2s_parser: Pin<Box<dyn Future<Output = ()>>>,
+    stream_s2c_parser: Pin<Box<dyn Future<Output = ()>>>,
+    stream_bdir_parser: Pin<Box<dyn Future<Output = ()>>>,
+    stream_c2s_state: TaskState,
+    stream_s2c_state: TaskState,
+    stream_bdir_state: TaskState,
+
+    // orderly_pkt_c2s_parser: Pin<Box<dyn Future<Output = ()>>>,
+    // orderly_pkt_s2c_parser: Pin<Box<dyn Future<Output = ()>>>,
+    // orderly_pkt_bdir_parser: Pin<Box<dyn Future<Output = ()>>>,
+    // orderly_pkt_c2s_state: TaskState,
+    // orderly_pkt_s2c_state: TaskState,
+    // orderly_pkt_bdir_state: TaskState,
+
+    // raw_order_pkt_c2s_parser: Pin<Box<dyn Future<Output = ()>>>,
+    // raw_order_pkt_s2c_parser: Pin<Box<dyn Future<Output = ()>>>,
+    // raw_order_pkt_bdir_parser: Pin<Box<dyn Future<Output = ()>>>,
+    // raw_order_pkt_c2s_state: TaskState,
+    // raw_order_pkt_s2c_state: TaskState,
+    // raw_order_pkt_bdir_state: TaskState,
 }
 
 impl Task {
     pub fn new(parser: impl Parser) -> Task {
-        let c2s_stream = Box::new(PktStrm::new());
-        let pc2s_stream: *const PktStrm = &*c2s_stream;
-        let c2s_parser = parser.c2s_parser(pc2s_stream);
+        let stream_c2s = Box::new(PktStrm::new());
+        let stream_s2c = Box::new(PktStrm::new());
+        let p_stream_c2s: *const PktStrm = &*stream_c2s;        
+        let p_stream_s2c: *const PktStrm = &*stream_s2c;
 
-        let s2c_stream = Box::new(PktStrm::new());
-        let ps2c_stream: *const PktStrm = &*s2c_stream;
-        let s2c_parser = parser.s2c_parser(ps2c_stream);
+        let stream_c2s_parser = parser.stream_c2s_parser(p_stream_c2s);
+        let stream_s2c_parser = parser.stream_s2c_parser(p_stream_s2c);
+        let stream_bdir_parser = parser.stream_bdir_parser(p_stream_c2s, p_stream_s2c);
 
-        let bdir_parser = parser.bdir_parser(pc2s_stream, ps2c_stream);
+        // let raw_order_pkt_c2s_parser = parser.raw_order_pkt_c2s_parser(p_stream_c2s);
+        // let raw_order_pkt_s2c_parser = parser.raw_order_pkt_s2c_parser(p_stream_s2c);
+        // let raw_order_pkt_bdir_parser = parser.raw_order_pkt_bdir_parser(p_stream_c2s, p_stream_s2c);
         
         Task {
-            c2s_stream,
-            s2c_stream,
-            c2s_parser,
-            s2c_parser,
-            bdir_parser,
-            c2s_state: TaskState::Start,
-            s2c_state: TaskState::Start,
-            bdir_state: TaskState::Start,
+            stream_c2s,
+            stream_s2c,
+            stream_c2s_parser,
+            stream_s2c_parser,
+            stream_bdir_parser,
+            stream_c2s_state: TaskState::Start,
+            stream_s2c_state: TaskState::Start,
+            stream_bdir_state: TaskState::Start,
         }
     }
     
     pub fn run(&mut self, pkt: Rc<Packet>, pkt_dir: PktDirection) {    
         match pkt_dir {
             PktDirection::Client2Server => {
-                self.c2s_stream.push(pkt);                
-                self.c2s_run();
+                self.stream_c2s.push(pkt);                
+                self.straem_c2s_run();
             }
             PktDirection::Server2Client => {
-                self.s2c_stream.push(pkt);
-                self.s2c_run();
+                self.stream_s2c.push(pkt);
+                self.stream_s2c_run();
             }
             _ => return
         }
-        self.bdir_run();
+        self.stream_bdir_run();
     }
     
-    fn c2s_run(&mut self) {
-        if self.c2s_state == TaskState::End {
+    fn straem_c2s_run(&mut self) {
+        if self.stream_c2s_state == TaskState::End {
             return;
         }
 
         let waker = dummy_waker();
         let mut context = Context::from_waker(&waker);
-        match self.c2s_poll(&mut context) {
-            Poll::Ready(()) => { self.c2s_state = TaskState::End }
+        match self.stream_c2s_parser.as_mut().poll(&mut context) {
+            Poll::Ready(()) => { self.stream_c2s_state = TaskState::End }
             Poll::Pending => {}
         }
     }
 
-    fn s2c_run(&mut self) {
-        if self.s2c_state == TaskState::End {
+    fn stream_s2c_run(&mut self) {
+        if self.stream_s2c_state == TaskState::End {
             return;
         }
 
         let waker = dummy_waker();
         let mut context = Context::from_waker(&waker);
-        match self.s2c_poll(&mut context) {
-            Poll::Ready(()) => { self.s2c_state = TaskState::End }
+        match self.stream_s2c_parser.as_mut().poll(&mut context) {
+            Poll::Ready(()) => { self.stream_s2c_state = TaskState::End }
             Poll::Pending => {}
         }
     }
 
-    fn bdir_run(&mut self) {
-        if self.bdir_state == TaskState::End {
+    fn stream_bdir_run(&mut self) {
+        if self.stream_bdir_state == TaskState::End {
             return;
         }
 
         let waker = dummy_waker();
         let mut context = Context::from_waker(&waker);
-        match self.bdir_poll(&mut context) {
-            Poll::Ready(()) => { self.bdir_state = TaskState::End }
+        match self.stream_bdir_parser.as_mut().poll(&mut context) {
+            Poll::Ready(()) => { self.stream_bdir_state = TaskState::End }
             Poll::Pending => {}
         }
-    }
-    
-    fn c2s_poll(&mut self, context: &mut Context) -> Poll<()> {
-        self.c2s_parser.as_mut().poll(context)
-    }
-
-    fn s2c_poll(&mut self, context: &mut Context) -> Poll<()> {
-        self.s2c_parser.as_mut().poll(context)
-    }
-
-    fn bdir_poll(&mut self, context: &mut Context) -> Poll<()> {
-        self.bdir_parser.as_mut().poll(context)
     }
     
     pub fn get_state(&self, dir: PktDirection) -> TaskState {
         match dir {
-            PktDirection::Client2Server => self.c2s_state,
-            PktDirection::Server2Client => self.s2c_state,
-            PktDirection::BiDirection => self.bdir_state,
+            PktDirection::Client2Server => self.stream_c2s_state,
+            PktDirection::Server2Client => self.stream_s2c_state,
+            PktDirection::BiDirection => self.stream_bdir_state,
             PktDirection::Unknown => TaskState::Error
         }
     }
@@ -122,14 +128,14 @@ impl Task {
 impl fmt::Debug for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Task")
-            .field("c2s_stream", &self.c2s_stream)
-            .field("s2c_stream", &self.s2c_stream)
+            .field("c2s_stream", &self.stream_c2s)
+            .field("s2c_stream", &self.stream_s2c)
             .field("c2s_parser", &"c2s_parser")
             .field("s2c_parser", &"s2c_parser")
             .field("bdir_parser", &"bidr_parser")
-            .field("c2s_state", &self.c2s_state)
-            .field("s2c_state", &self.s2c_state)
-            .field("bdir_state", &self.bdir_state)            
+            .field("c2s_state", &self.stream_c2s_state)
+            .field("s2c_state", &self.stream_s2c_state)
+            .field("bdir_state", &self.stream_bdir_state)            
             .finish()
     }
 }
@@ -165,7 +171,7 @@ mod tests {
     
     struct TestTask;
     impl Parser for TestTask {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
+        fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
             Box::pin(async move {
                 let mut stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }

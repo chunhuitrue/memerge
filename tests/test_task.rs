@@ -7,7 +7,7 @@ mod common;
 
 struct StreamTask;
 impl Parser for StreamTask {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -39,7 +39,7 @@ fn test_stream() {
 
 struct StreamTask3pkt;
 impl Parser for StreamTask3pkt {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -88,7 +88,7 @@ fn test_stream_3pkt() {
 
 struct StreamTaskFin;
 impl Parser for StreamTaskFin {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -141,7 +141,7 @@ fn test_stream_fin() {
 
 struct StreamTaskAck;
 impl Parser for StreamTaskAck {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -195,7 +195,7 @@ fn test_stream_ack() {
 
 struct StreamTaskSyn;
 impl Parser for StreamTaskSyn {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -249,7 +249,7 @@ fn test_stream_syn() {
 
 struct StreamTaskReadn;
 impl Parser for StreamTaskReadn {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -303,7 +303,7 @@ fn test_readn() {
 
 struct StreamTaskReadLine;
 impl Parser for StreamTaskReadLine {
-    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
         Box::pin(async move {
             let stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
