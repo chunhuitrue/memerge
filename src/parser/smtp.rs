@@ -7,7 +7,7 @@ use crate::PktStrm;
 pub struct SmtpParser;
 
 impl Parser for SmtpParser {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
+    fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
             let mut stream_ref: &mut PktStrm;
             unsafe { stream_ref = &mut *(stream as *mut PktStrm); }

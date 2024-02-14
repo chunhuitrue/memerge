@@ -6,6 +6,8 @@ use std::rc::Rc;
 use futures_util::stream::{Stream, StreamExt};
 use std::task::Poll;
 use futures::future;
+use futures::Future;
+use futures::future::poll_fn;
 use crate::Packet;
 use crate::util::*;
 
@@ -80,6 +82,7 @@ impl PktStrm {
     // 如果有序返回pkt，否则返回none
     // 同时会更新当前的seq。
     pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
+        println!("pop_ord");
         self.top_order();
         
         if let Some(pkt) = self.peek_ord() {
@@ -92,8 +95,10 @@ impl PktStrm {
             }
             
             self.pop_fin(pkt.clone());
+            println!("pop_ord. return pkt");
             return Some(pkt);
         }
+        println!("pop_ord. return None");
         None
     }
 
@@ -139,6 +144,21 @@ impl PktStrm {
             res
         }
     }
+
+    pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
+        poll_fn(|_cx| {
+            println!("next_ord_pkt. up pop_ord");
+            // self.peek_ord();
+            // println!("next_ord_pkt. 2 peek");            
+            if let Some(pkt) = self.pop_ord() {
+                println!("next_ord_pkt. ready");
+                Poll::Ready(Some(pkt))
+            } else {
+                println!("next_ord_pkt. pending");                
+                Poll::Pending                
+            }
+        })
+    }    
 }
 
 impl Drop for PktStrm {

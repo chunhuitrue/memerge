@@ -5,26 +5,26 @@ use crate::common::*;
 
 mod common;
 
-struct StreamTask;
-impl Parser for StreamTask {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-
-            for i in 0..10 {
-                let ret = stream_ref.next().await;
-                println!("i:{}, ret:{}", i, ret.unwrap());
-                assert_eq!(Some(i + 1), ret);
-            }
-            assert_eq!(None, stream_ref.next().await);
-        })
-    }
-}
-
 // 简单情况，一个包，带fin
 #[test] #[cfg(not(miri))]
 fn test_stream() {
+    struct StreamTask;
+    impl Parser for StreamTask {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                for i in 0..10 {
+                    let ret = stream_ref.next().await;
+                    println!("i:{}, ret:{}", i, ret.unwrap());
+                    assert_eq!(Some(i + 1), ret);
+                }
+                assert_eq!(None, stream_ref.next().await);
+            })
+        }
+    }
+
     // 1 - 10
     let seq1 = 1;
     let pkt1 = build_pkt(seq1, true);
@@ -32,35 +32,35 @@ fn test_stream() {
 
     let dir = PktDirection::Client2Server;        
     let mut task = Task::new(StreamTask);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(pkt1, dir.clone());
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
-}
-
-struct StreamTask3pkt;
-impl Parser for StreamTask3pkt {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-            
-            for j in 0..3 {
-                println!("j:{}", j);
-                for i in 0..10 {
-                    println!("  up next");
-                    let ret = stream_ref.next().await;
-                    println!("  i:{}, ret:{}", i, ret.unwrap());
-                    assert_eq!(Some(i + 1), ret);
-                }
-            }
-            assert_eq!(None, stream_ref.next().await);                
-        })
-    }
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
 }
 
 // 三个包，最后一个包带fin
 #[test] #[cfg(not(miri))]
 fn test_stream_3pkt() {
+    struct StreamTask3pkt;
+    impl Parser for StreamTask3pkt {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+                
+                for j in 0..3 {
+                    println!("j:{}", j);
+                    for i in 0..10 {
+                        println!("  up next");
+                        let ret = stream_ref.next().await;
+                        println!("  i:{}, ret:{}", i, ret.unwrap());
+                        assert_eq!(Some(i + 1), ret);
+                    }
+                }
+                assert_eq!(None, stream_ref.next().await);                
+            })
+        }
+    }
+
     // 1 - 10
     let seq1 = 1;
     let pkt1 = build_pkt(seq1, false);
@@ -76,38 +76,38 @@ fn test_stream_3pkt() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTask3pkt);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
     println!("run 2");        
     task.run(pkt3, dir.clone());
     println!("run 3");
     task.run(pkt2, dir.clone());
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
-}
-
-struct StreamTaskFin;
-impl Parser for StreamTaskFin {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-            
-            for _j in 0..3 {
-                for i in 0..10 {
-                    let ret = stream_ref.next().await;
-                    println!("i:{}, ret:{}", i, ret.unwrap());
-                    assert_eq!(Some(i + 1), ret);
-                }
-            }
-            assert_eq!(None, stream_ref.next().await);
-        })
-    }
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
 }
 
 // 四个包，最后一个包只带fin
 #[test] #[cfg(not(miri))]
 fn test_stream_fin() {
+    struct StreamTaskFin;
+    impl Parser for StreamTaskFin {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+                
+                for _j in 0..3 {
+                    for i in 0..10 {
+                        let ret = stream_ref.next().await;
+                        println!("i:{}, ret:{}", i, ret.unwrap());
+                        assert_eq!(Some(i + 1), ret);
+                    }
+                }
+                assert_eq!(None, stream_ref.next().await);
+            })
+        }
+    }
+
     // 1 - 10
     let seq1 = 1;
     let pkt1 = build_pkt(seq1, false);
@@ -127,7 +127,7 @@ fn test_stream_fin() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskFin);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
     println!("run 3");        
@@ -136,31 +136,31 @@ fn test_stream_fin() {
     task.run(pkt2, dir.clone());
     println!("run 4");        
     task.run(pkt4, dir.clone());        
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));        
-}
-
-struct StreamTaskAck;
-impl Parser for StreamTaskAck {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-
-            for _j in 0..3 {
-                for i in 0..10 {
-                    let ret = stream_ref.next().await;
-                    println!("i:{}, ret:{}", i, ret.unwrap());
-                    assert_eq!(Some(i + 1), ret);
-                }
-            }
-            assert_eq!(None, stream_ref.next().await);
-        })
-    }
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));        
 }
 
 // 中间有纯ack包的情况
 #[test] #[cfg(not(miri))]    
 fn test_stream_ack() {
+    struct StreamTaskAck;
+    impl Parser for StreamTaskAck {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                for _j in 0..3 {
+                    for i in 0..10 {
+                        let ret = stream_ref.next().await;
+                        println!("i:{}, ret:{}", i, ret.unwrap());
+                        assert_eq!(Some(i + 1), ret);
+                    }
+                }
+                assert_eq!(None, stream_ref.next().await);
+            })
+        }
+    }
+
     // 1 - 10
     let seq1 = 1;
     let pkt1 = build_pkt(seq1, false);
@@ -184,37 +184,37 @@ fn test_stream_ack() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskAck);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(pkt1, dir.clone());
     task.run(pkt3, dir.clone());
     task.run(pkt2, dir.clone());
     task.run(ack_pkt, dir.clone());
     task.run(pkt4, dir.clone());
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
-}
-
-struct StreamTaskSyn;
-impl Parser for StreamTaskSyn {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-
-            for _j in 0..3 {
-                for i in 0..10 {
-                    let ret = stream_ref.next().await;
-                    println!("i:{}, ret:{}", i, ret.unwrap());
-                    assert_eq!(Some(i + 1), ret);
-                }
-            }
-            assert_eq!(None, stream_ref.next().await);
-        })
-    }
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
 }
 
 // syn包。同时也验证了中间中断，需要多次run的情况
 #[test]  #[cfg(not(miri))]
 fn test_stream_syn() {
+    struct StreamTaskSyn;
+    impl Parser for StreamTaskSyn {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                for _j in 0..3 {
+                    for i in 0..10 {
+                        let ret = stream_ref.next().await;
+                        println!("i:{}, ret:{}", i, ret.unwrap());
+                        assert_eq!(Some(i + 1), ret);
+                    }
+                }
+                assert_eq!(None, stream_ref.next().await);
+            })
+        }
+    }
+
     // syn 包seq占一个
     let syn_pkt_seq = 1;
     let syn_pkt = build_pkt_syn(syn_pkt_seq);
@@ -238,37 +238,37 @@ fn test_stream_syn() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskSyn);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt2, dir.clone());
     task.run(pkt3, dir.clone());
     task.run(pkt1, dir.clone());
     task.run(pkt4, dir.clone());
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
 }
 
-struct StreamTaskReadn;
-impl Parser for StreamTaskReadn {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-
-            let res = stream_ref.readn(5).await;
-            assert_eq!(vec![1,2,3,4,5], res);
-            let res = stream_ref.readn(10).await;
-            assert_eq!(vec![6,7,8,9,10,1,2,3,4,5], res);
-            let res = stream_ref.readn(15).await;
-            assert_eq!(vec![6,7,8,9,10,1,2,3,4,5,6,7,8,9,10], res);
-            let res = stream_ref.readn(10).await;
-            assert_eq!(Vec::<u8>::new(), res);
-        })
-    }
-}
-    
 // 4个包，还带syn，fin。看看是否可以跨包readn
 #[test] #[cfg(not(miri))]
 fn test_readn() {
+    struct StreamTaskReadn;
+    impl Parser for StreamTaskReadn {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                let res = stream_ref.readn(5).await;
+                assert_eq!(vec![1,2,3,4,5], res);
+                let res = stream_ref.readn(10).await;
+                assert_eq!(vec![6,7,8,9,10,1,2,3,4,5], res);
+                let res = stream_ref.readn(15).await;
+                assert_eq!(vec![6,7,8,9,10,1,2,3,4,5,6,7,8,9,10], res);
+                let res = stream_ref.readn(10).await;
+                assert_eq!(Vec::<u8>::new(), res);
+            })
+        }
+    }
+    
     // syn 包seq占一个
     let syn_pkt_seq = 1;
     let syn_pkt = build_pkt_syn(syn_pkt_seq);
@@ -292,37 +292,37 @@ fn test_readn() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskReadn);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt4, dir.clone());        
     task.run(pkt2, dir.clone());
     task.run(pkt3, dir.clone());
     task.run(pkt1, dir.clone());
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
 }    
-
-struct StreamTaskReadLine;
-impl Parser for StreamTaskReadLine {
-    fn stream_c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
-        Box::pin(async move {
-            let stream_ref: &mut PktStrm;
-            unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
-
-            let res = stream_ref.readline().await;
-            assert_eq!(*b"1234\r\n", res.as_slice());
-            let res = stream_ref.readline().await;
-            assert_eq!(*b"56781234\r\n", res.as_slice());
-            let res = stream_ref.readline().await;
-            assert_eq!(*b"56\r\n", res.as_slice());
-            let res = stream_ref.readline().await;        
-            assert_eq!(Vec::<u8>::new(), res);
-        })
-    }
-}
 
 // 跨包的行
 #[test] #[cfg(not(miri))]
 fn test_readline() {
+    struct StreamTaskReadLine;
+    impl Parser for StreamTaskReadLine {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                let res = stream_ref.readline().await;
+                assert_eq!(*b"1234\r\n", res.as_slice());
+                let res = stream_ref.readline().await;
+                assert_eq!(*b"56781234\r\n", res.as_slice());
+                let res = stream_ref.readline().await;
+                assert_eq!(*b"56\r\n", res.as_slice());
+                let res = stream_ref.readline().await;        
+                assert_eq!(Vec::<u8>::new(), res);
+            })
+        }
+    }
+
     // syn 包seq占一个
     let syn_pkt_seq = 1;
     let syn_pkt = build_pkt_syn(syn_pkt_seq);
@@ -342,10 +342,242 @@ fn test_readline() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskReadLine);
-    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt4, dir.clone());        
     task.run(pkt1, dir.clone());
     task.run(pkt2, dir.clone());
-    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
 }    
+
+// 有序包的解码器。3个包有序到来
+#[test] #[cfg(not(miri))]
+fn test_ordpkt() {
+    struct OrdPktTask;
+    impl Parser for OrdPktTask {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                println!("parser. pkt1");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(1, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt2");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(11, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt3");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(21, pkt.seq());
+                }
+            })
+        }
+    }
+
+    // 1 - 10
+    let seq1 = 1;
+    let pkt1 = build_pkt(seq1, false);
+    let _ = pkt1.decode();
+    // 11 - 20
+    let seq2 = seq1 + pkt1.payload_len();
+    let pkt2 = build_pkt(seq2, false);
+    let _ = pkt2.decode();
+    // 21 - 30
+    let seq3 = seq2 + pkt2.payload_len();
+    let pkt3 = build_pkt(seq3, true);
+    let _ = pkt3.decode();
+    
+    let dir = PktDirection::Client2Server;
+    let mut task = Task::new(OrdPktTask);
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
+    println!("run 1");    
+    task.run(pkt1, dir.clone());
+    println!("run 2");
+    task.run(pkt2, dir.clone());
+    println!("run 3");
+    task.run(pkt3, dir.clone());    
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
+}
+
+// 有序包的解码器。3个包乱序到来
+#[test] #[cfg(not(miri))]
+fn test_ordpkt_3pkt() {
+    struct OrdPktTask3pkt;
+    impl Parser for OrdPktTask3pkt {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                println!("parser. pkt1");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(1, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt2");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(11, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt3");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(21, pkt.seq());
+                }
+            })
+        }
+    }
+    
+    // 1 - 10
+    let seq1 = 1;
+    let pkt1 = build_pkt(seq1, false);
+    let _ = pkt1.decode();
+    // 11 - 20
+    let seq2 = seq1 + pkt1.payload_len();
+    let pkt2 = build_pkt(seq2, false);
+    let _ = pkt2.decode();
+    // 21 - 30
+    let seq3 = seq2 + pkt2.payload_len();
+    let pkt3 = build_pkt(seq3, true);
+    let _ = pkt3.decode();
+
+    let dir = PktDirection::Client2Server;
+    let mut task = Task::new(OrdPktTask3pkt);
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
+    println!("run 1");    
+    task.run(pkt1, dir.clone());
+    println!("run 2");
+    task.run(pkt3, dir.clone());
+    println!("run 3");
+    task.run(pkt2, dir.clone());    
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
+}
+
+// 有序包的解码器。4个包乱序到来
+#[test] #[cfg(not(miri))]
+fn test_ordpkt_4pkt() {
+    struct OrdPktTask4pkt;
+    impl Parser for OrdPktTask4pkt {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                println!("parser. pkt1");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(1, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt2");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(11, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt3");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(21, pkt.seq());
+                }
+                
+                println!(" ");
+                println!("parser. pkt4");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(31, pkt.seq());
+                }
+            })
+        }
+    }
+    
+    // 1 - 10
+    let seq1 = 1;
+    let pkt1 = build_pkt(seq1, false);
+    let _ = pkt1.decode();
+    // 11 - 20
+    let seq2 = seq1 + pkt1.payload_len();
+    let pkt2 = build_pkt(seq2, false);
+    let _ = pkt2.decode();
+    // 21 - 30
+    let seq3 = seq2 + pkt2.payload_len();
+    let pkt3 = build_pkt(seq3, true);
+    let _ = pkt3.decode();
+    // 21 - 30
+    let seq4 = seq3 + pkt3.payload_len();
+    let pkt4 = build_pkt(seq4, true);
+    let _ = pkt4.decode();
+
+    let dir = PktDirection::Client2Server;
+    let mut task = Task::new(OrdPktTask4pkt);
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
+    println!("run 1");    
+    task.run(pkt1, dir.clone());
+    println!("run 4");
+    task.run(pkt4, dir.clone());
+    println!("run 2");
+    task.run(pkt3, dir.clone());
+    println!("run 3");
+    task.run(pkt2, dir.clone());    
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
+}
+
+// 有序包的解码器。2个包，带syn。正序到来
+#[test] #[cfg(not(miri))]
+fn test_ordpkt_2pkt_syn() {
+    struct OrdPktTask2pktSyn;
+    impl Parser for OrdPktTask2pktSyn {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                println!("parser. syn pkt");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(1, pkt.seq());
+                }
+
+                println!(" ");
+                println!("parser. pkt1");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(2, pkt.seq());
+                }
+            })
+        }
+    }
+    
+    // syn 包seq占一个
+    let syn_pkt_seq = 1;
+    let syn_pkt = build_pkt_syn(syn_pkt_seq);
+    let _ = syn_pkt.decode();
+    // 2 - 11
+    let seq1 = syn_pkt_seq + 1;
+    let pkt1 = build_pkt(seq1, false);
+    let _ = pkt1.decode();
+
+    let dir = PktDirection::Client2Server;
+    let mut task = Task::new(OrdPktTask2pktSyn);
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
+    println!("run 1");    
+    task.run(syn_pkt, dir.clone());
+    println!("run 2");
+    task.run(pkt1, dir.clone());
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
+}
