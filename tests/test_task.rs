@@ -32,9 +32,9 @@ fn test_stream() {
 
     let dir = PktDirection::Client2Server;        
     let mut task = Task::new(StreamTask);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     task.run(pkt1, dir.clone());
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
 }
 
 struct StreamTask3pkt;
@@ -76,14 +76,14 @@ fn test_stream_3pkt() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTask3pkt);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
     println!("run 2");        
     task.run(pkt3, dir.clone());
     println!("run 3");
     task.run(pkt2, dir.clone());
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
 }
 
 struct StreamTaskFin;
@@ -127,7 +127,7 @@ fn test_stream_fin() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskFin);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
     println!("run 3");        
@@ -136,7 +136,7 @@ fn test_stream_fin() {
     task.run(pkt2, dir.clone());
     println!("run 4");        
     task.run(pkt4, dir.clone());        
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));        
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));        
 }
 
 struct StreamTaskAck;
@@ -184,13 +184,13 @@ fn test_stream_ack() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskAck);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     task.run(pkt1, dir.clone());
     task.run(pkt3, dir.clone());
     task.run(pkt2, dir.clone());
     task.run(ack_pkt, dir.clone());
     task.run(pkt4, dir.clone());
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
 }
 
 struct StreamTaskSyn;
@@ -238,13 +238,13 @@ fn test_stream_syn() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskSyn);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt2, dir.clone());
     task.run(pkt3, dir.clone());
     task.run(pkt1, dir.clone());
     task.run(pkt4, dir.clone());
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
 }
 
 struct StreamTaskReadn;
@@ -292,13 +292,13 @@ fn test_readn() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskReadn);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt4, dir.clone());        
     task.run(pkt2, dir.clone());
     task.run(pkt3, dir.clone());
     task.run(pkt1, dir.clone());
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
 }    
 
 struct StreamTaskReadLine;
@@ -342,10 +342,10 @@ fn test_readline() {
 
     let dir = PktDirection::Client2Server;
     let mut task = Task::new(StreamTaskReadLine);
-    assert_eq!(TaskState::Start, task.get_state(dir.clone()));
+    assert_eq!(TaskState::Start, task.stream_parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt4, dir.clone());        
     task.run(pkt1, dir.clone());
     task.run(pkt2, dir.clone());
-    assert_eq!(TaskState::End, task.get_state(dir.clone()));
+    assert_eq!(TaskState::End, task.stream_parser_state(dir.clone()));
 }    

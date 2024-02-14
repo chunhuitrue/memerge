@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use core::cmp::Ordering;
 use std::cmp::Reverse;
 use etherparse::TransportHeader;
@@ -81,7 +79,7 @@ impl PktStrm {
 
     // 如果有序返回pkt，否则返回none
     // 同时会更新当前的seq。
-    fn pop_ord(&mut self) -> Option<Rc<Packet>> {
+    pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
         self.top_order();
         
         if let Some(pkt) = self.peek_ord() {
@@ -108,7 +106,7 @@ impl PktStrm {
     
     // 无论是否严格seq连续，都pop一个当前包。
     // 注意：next_seq由调用者负责
-    fn pop(&mut self) -> Option<Rc<Packet>> {
+    pub fn pop(&mut self) -> Option<Rc<Packet>> {
         self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
     }
     
@@ -212,12 +210,7 @@ impl Ord for SeqPacket {
 #[cfg(test)]
 mod tests {
     use etherparse::*;
-    use core::{future::Future, pin::Pin, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
     use super::*;    
-    use crate::{ntohs, ntohl, htons, htonl};
-    use crate::Task;
-    use crate::TaskState;
-    use crate::PktDirection;
 
     #[test]
     fn test_pkt() {
