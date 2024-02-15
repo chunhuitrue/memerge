@@ -41,6 +41,7 @@ pub fn build_pkt_nodata(seq: u32, fin: bool) -> Rc<Packet> {
     Packet::new(1, result.len(), &result)
 }
 
+// 独立的ack包，没有载荷
 pub fn build_pkt_ack(seq: u32, ack_seq: u32) -> Rc<Packet> {
     //setup the packet headers
     let mut builder = PacketBuilder::
@@ -75,6 +76,7 @@ pub fn build_pkt_ack(seq: u32, ack_seq: u32) -> Rc<Packet> {
     Packet::new(1, result.len(), &result)
 }
 
+// 独立的syn包，没有载荷
 pub fn build_pkt_syn(seq: u32) -> Rc<Packet> {
     //setup the packet headers
     let mut builder = PacketBuilder::
@@ -144,6 +146,7 @@ pub fn build_pkt_line(seq: u32, payload: [u8;10]) -> Rc<Packet> {
     Packet::new(1, result.len(), &result)
 }
 
+// 带载荷，可以带fin
 pub fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
     //setup the packet headers
     let mut builder = PacketBuilder::
@@ -179,5 +182,10 @@ pub fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
     // println!("result len:{}", result.len());
     
     Packet::new(1, result.len(), &result)
+}
+
+// 独立的fin包，没有载荷
+pub fn build_pkt_fin(seq: u32) -> Rc<Packet> {
+    build_pkt_nodata(seq, true)
 }
 

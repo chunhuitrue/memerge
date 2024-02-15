@@ -70,7 +70,12 @@ impl PktStrm {
     // 清理掉top位置重复的包（但不是cache中所有重复的包）
     fn top_order(&mut self) {
         while let Some(pkt) = self.peek() {
+            if self.next_seq == 0 && pkt.syn() && pkt.seq() == 0 {
+                return;
+            }
+            
             if pkt.seq() + pkt.payload_len() <= self.next_seq {
+                dbg!("top_order. clean");
                 self.pop_fin(pkt.clone());                
                 continue;
             } else {
@@ -82,12 +87,15 @@ impl PktStrm {
     // 如果有序返回pkt，否则返回none
     // 同时会更新当前的seq。
     pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
-        println!("pop_ord");
+        dbg!(self.len());        
         self.top_order();
+        dbg!(self.len());
         
         if let Some(pkt) = self.peek_ord() {
             if self.next_seq == 0 {
                 self.next_seq = pkt.seq() + pkt.payload_len();
+            } else if pkt.syn() && pkt.payload_len() == 0 {
+                self.next_seq += 1;
             } else if self.next_seq == pkt.seq() {
                 self.next_seq += pkt.payload_len();                
             } else if self.next_seq > pkt.seq() {
@@ -95,20 +103,20 @@ impl PktStrm {
             }
             
             self.pop_fin(pkt.clone());
-            println!("pop_ord. return pkt");
+            dbg!("pop_ord.return pkt");
             return Some(pkt);
         }
-        println!("pop_ord. return None");
+        dbg!("pop_ord.return none");        
         None
     }
-
+    
     fn pop_fin(&mut self, pkt: Rc<Packet>) {
         if pkt.fin() {
             self.fin = true;
         }
         self.pop();
     }
-    
+
     // 无论是否严格seq连续，都pop一个当前包。
     // 注意：next_seq由调用者负责
     pub fn pop(&mut self) -> Option<Rc<Packet>> {
@@ -145,20 +153,127 @@ impl PktStrm {
         }
     }
 
+
+    
+    // ===================== 新版 ==================
+    // 无论是否严格seq连续，peek一个当前最有序的包
+    // 不更新next_seq
+    pub fn peek_pkt(&self) -> Option<Rc<Packet>> {
+        self.cache.peek().map(|rev_pkt| {
+            let SeqPacket(pkt) = &rev_pkt.0;
+            pkt.clone()
+        })
+    }
+
+    // 无论是否严格seq连续，都pop一个当前包。
+    // 注意：next_seq由调用者负责
+    pub fn pop_pkt(&mut self) -> Option<Rc<Packet>> {
+        self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
+    }
+
+    // top位置去重（并非整个cache内部都去重）
+    fn top_pkt_dedup(&mut self) {
+        while let Some(pkt) = self.peek_pkt() {
+            if pkt.fin() {
+                return;
+            }
+            
+            if pkt.seq() + pkt.payload_len() <= self.next_seq {
+                dbg!("top_pkt_dedup. pop");
+                self.pop_pkt();
+                continue;
+            }
+            return;
+        }
+    }
+    
+    // 严格有序。peek一个seq严格有序的包，可能包含payload为0的。如果当前top有序，就peek，否则就none。
+    fn peek_ord_pkt(&mut self) -> Option<Rc<Packet>> {
+        if self.next_seq == 0 {
+            if let Some(pkt) = self.peek() {
+                self.next_seq = pkt.seq();                
+            }
+            dbg!("peek_ord_pkt return peek");
+            return self.peek();
+        }
+
+        self.top_pkt_dedup();
+        if let Some(pkt) = self.peek() {
+            if pkt.seq() <= self.next_seq {
+                return Some(pkt);
+            }
+        }
+        None
+    }
+
+    // 严格有序。弹出一个严格有序的包，可能包含载荷为0的。否则为none
+    // 并不需要关心fin标记，这不是pkt这一层关心的问题
+    pub fn pop_ord_pkt(&mut self) -> Option<Rc<Packet>> {
+        if let Some(pkt) = self.peek_ord_pkt() {
+            dbg!(pkt.seq());
+            if pkt.syn() && pkt.payload_len() == 0 {
+                self.next_seq += 1;                
+            } else if self.next_seq == pkt.seq() {
+                self.next_seq += pkt.payload_len();                
+            } else if self.next_seq > pkt.seq() {
+                self.next_seq += pkt.payload_len() - (self.next_seq - pkt.seq());
+            }
+
+            return self.pop_pkt();
+        }
+        None
+    }
+    
+    // 严格有序。下一个有序的包。包含载荷为0的
     pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
         poll_fn(|_cx| {
-            println!("next_ord_pkt. up pop_ord");
-            // self.peek_ord();
-            // println!("next_ord_pkt. 2 peek");            
-            if let Some(pkt) = self.pop_ord() {
-                println!("next_ord_pkt. ready");
+            if let Some(pkt) = self.pop_ord_pkt() {
                 Poll::Ready(Some(pkt))
             } else {
-                println!("next_ord_pkt. pending");                
                 Poll::Pending                
             }
         })
     }    
+
+    // // 严格有序。下一个有序的包。包含载荷为0的
+    // pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
+    //     poll_fn(|_cx| {
+    //         if let Some(pkt) = self.pop_ord_pkt() {
+    //             Poll::Ready(Some(pkt))
+    //         } else {
+    //             Poll::Pending                
+    //         }
+    //     })
+    // }    
+    
+    // 严格有序的数据。peek出一个带数据的严格有序的包。否则为none
+    pub fn peek_ord_data(&mut self) -> Option<Rc<Packet>> {
+        while let Some(pkt) = self.peek_ord_pkt() {
+            if pkt.fin() {
+                self.fin = true;
+            }
+            if pkt.payload_len() == 0 {
+                self.pop_ord_pkt();
+                continue;
+            }
+
+            break;
+        }
+        self.peek_ord_pkt()
+    }
+    
+    // 严格有序的数据。pop一个带数据的严格有序的包。否则为none
+    pub fn pop_ord_data(&mut self) -> Option<Rc<Packet>> {
+        if let Some(pkt) = self.peek_ord_data() {
+            match self.next_seq.cmp(&pkt.seq()) {
+                std::cmp::Ordering::Equal => self.next_seq += pkt.payload_len(),
+                std::cmp::Ordering::Greater => self.next_seq += pkt.payload_len() - (self.next_seq - pkt.seq()),
+                std::cmp::Ordering::Less => {},
+            }
+            return self.pop_pkt();            
+        }
+        None
+    }
 }
 
 impl Drop for PktStrm {
@@ -177,22 +292,42 @@ impl Stream for PktStrm {
     type Item = u8;
 
     fn poll_next(mut self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        if let Some(pkt) = self.peek_ord() {
+        if let Some(pkt) = self.peek_ord_data() {
             let index = pkt.header.borrow().as_ref().unwrap().payload_offset as u32 + (self.next_seq - pkt.seq());
-            if pkt.syn() && pkt.payload_len() == 0 {
-                self.next_seq += 1;
-                return Poll::Pending;                
-            }
             if (index as usize) < pkt.data_len {
                 self.next_seq += 1;
                 return Poll::Ready(Some(pkt.data[index as usize])); 
             }
-        } else if self.fin {
+        }
+        if self.fin {
+            dbg!("poll next. ready none");
             return Poll::Ready(None);
         }
+        dbg!("poll next. pending", self.fin);
         Poll::Pending
     }
 }
+
+// impl Stream for PktStrm {
+//     type Item = u8;
+
+//     fn poll_next(mut self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+//         if let Some(pkt) = self.peek_ord() {
+//             let index = pkt.header.borrow().as_ref().unwrap().payload_offset as u32 + (self.next_seq - pkt.seq());
+//             if pkt.syn() && pkt.payload_len() == 0 {
+//                 self.next_seq += 1;
+//                 return Poll::Pending;                
+//             }
+//             if (index as usize) < pkt.data_len {
+//                 self.next_seq += 1;
+//                 return Poll::Ready(Some(pkt.data[index as usize])); 
+//             }
+//         } else if self.fin {
+//             return Poll::Ready(None);
+//         }
+//         Poll::Pending
+//     }
+// }
 
 #[derive(Debug, Clone)]
 struct SeqPacket(Rc<Packet>);
@@ -241,6 +376,21 @@ mod tests {
         assert_eq!(10, pkt1.header.borrow().as_ref().unwrap().payload_len);
         assert_eq!(25, pkt1.header.borrow().as_ref().unwrap().sport());
     }
+
+    #[test]
+    fn test_push() {
+        let mut stm = PktStrm::new();
+        
+        let pkt1 = make_pkt_data(123);
+        let _ = pkt1.decode();
+        stm.push(pkt1);
+        assert_eq!(1, stm.len());
+        
+        let pkt2 = make_pkt_data(123);
+        let _ = pkt2.decode();
+        stm.push(pkt2);
+        assert_eq!(2, stm.len());
+    }
     
     #[test]
     fn test_seqpacket_eq() {
@@ -288,24 +438,9 @@ mod tests {
         let pkt2 = SeqPacket(pkt2);
         assert!(pkt1 < pkt2);
     }
-
-    #[test]
-    fn test_push() {
-        let mut stm = PktStrm::new();
-        
-        let pkt1 = make_pkt_data(123);
-        let _ = pkt1.decode();
-        stm.push(pkt1);
-        assert_eq!(1, stm.len());
-        
-        let pkt2 = make_pkt_data(123);
-        let _ = pkt2.decode();
-        stm.push(pkt2);
-        assert_eq!(2, stm.len());
-    }
     
     #[test]
-    fn test_peek() {
+    fn test_peek_pkt() {
         let mut stm = PktStrm::new();
         
         let pkt1 = make_pkt_data(1);
@@ -320,11 +455,11 @@ mod tests {
         let _ = pkt3.decode();
         stm.push(pkt3);
         
-        assert_eq!(1, stm.peek().unwrap().seq());
+        assert_eq!(1, stm.peek_pkt().unwrap().seq());
         stm.pop();
-        assert_eq!(30, stm.peek().unwrap().seq());
+        assert_eq!(30, stm.peek_pkt().unwrap().seq());
         stm.pop();
-        assert_eq!(80, stm.peek().unwrap().seq());
+        assert_eq!(80, stm.peek_pkt().unwrap().seq());
         stm.pop();        
         assert!(stm.is_empty());
         stm.clear();        
@@ -332,7 +467,7 @@ mod tests {
 
     // 插入的包严格有序 1-10 11-20 21-30
     #[test]
-    fn test_peek_ord() {
+    fn test_peek_ord_pkt() {
         let mut stm = PktStrm::new();
         // 1 - 10
         let seq1 = 1;
@@ -351,12 +486,12 @@ mod tests {
         stm.push(pkt3);
         stm.push(pkt1.clone());
         
-        assert_eq!(seq1, stm.peek_ord().unwrap().seq());
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());
-        assert_eq!(seq2, stm.peek_ord().unwrap().seq());
-        assert_eq!(seq2, stm.pop_ord().unwrap().seq());
-        assert_eq!(seq3, stm.peek_ord().unwrap().seq());
-        assert_eq!(seq3, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq1, stm.peek_ord_pkt().unwrap().seq());
+        assert_eq!(seq1, stm.pop_ord_pkt().unwrap().seq());
+        assert_eq!(seq2, stm.peek_ord_pkt().unwrap().seq());
+        assert_eq!(seq2, stm.pop_ord_pkt().unwrap().seq());
+        assert_eq!(seq3, stm.peek_ord_pkt().unwrap().seq());
+        assert_eq!(seq3, stm.pop_ord_pkt().unwrap().seq());
         assert!(stm.is_empty());
         stm.clear();
     }
@@ -385,26 +520,29 @@ mod tests {
 
         assert_eq!(4, stm.len());
         assert_eq!(0, stm.next_seq);
-        assert_eq!(seq1, stm.peek().unwrap().seq()); // 此时pkt1在top
-        assert_eq!(seq1, stm.peek_ord().unwrap().seq());  // 看到pkt1
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
-        assert_eq!(pkt1.seq() + pkt1.payload_len(), stm.next_seq);
+        
+        assert_eq!(seq1, stm.peek_pkt().unwrap().seq()); // 此时pkt1在top
+        assert_eq!(seq1, stm.peek_ord_pkt().unwrap().seq());  // 按有序方式，看到pkt1
+        assert_eq!(seq1, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt1, 通过pop_ord_pkt更新next_seq
+        assert_eq!(seq2, stm.next_seq); 
         
         assert_eq!(3, stm.len());                         // 此时重复的pkt1，仍在里面，top上
-        assert_eq!(seq1, stm.peek().unwrap().seq());
-        
-        assert_eq!(seq2, stm.peek_ord().unwrap().seq()); // 看到pkt2
-        assert_eq!(2, stm.len());         // peek_ord清理了重复的pkt1
-        assert_eq!(pkt1.seq() + pkt1.payload_len(), stm.next_seq); //  peek_ord不会更新next_seq
+        assert_eq!(seq1, stm.peek_pkt().unwrap().seq());
+        assert_eq!(seq2, stm.next_seq);
 
-        assert_eq!(seq2, stm.pop_ord().unwrap().seq());   // 弹出pkt2, 通过pop_ord更新next_seq
+        dbg!(stm.next_seq);
+        assert_eq!(seq2, stm.peek_ord_pkt().unwrap().seq()); // 看到pkt2
+        assert_eq!(2, stm.len());                            // peek_ord清理了重复的pkt1
+        assert_eq!(seq2, stm.next_seq); //  peek_ord不会更新next_seq
+
+        assert_eq!(seq2, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt2, 通过pop_ord更新next_seq
         assert_eq!(1, stm.len());
-        assert_eq!(pkt1.seq() + pkt1.payload_len() + pkt2.payload_len(), stm.next_seq); //  peek_ord不会更新next_seq        
+        assert_eq!(seq3, stm.next_seq); //  peek_ord不会更新next_seq
         
-        assert_eq!(seq3, stm.peek().unwrap().seq()); // 此时pkt3在top
-        assert_eq!(seq3, stm.peek_ord().unwrap().seq());  // 看到pkt3
-        assert_eq!(seq3, stm.pop_ord().unwrap().seq());   // 弹出pkt3, 通过pop_ord更新next_seq
-        assert_eq!(pkt1.seq() + pkt1.payload_len() + pkt2.payload_len() + pkt3.payload_len(), stm.next_seq);
+        assert_eq!(seq3, stm.peek_pkt().unwrap().seq()); // 此时pkt3在top
+        assert_eq!(seq3, stm.peek_ord_pkt().unwrap().seq());  // 看到pkt3
+        assert_eq!(seq3, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt3, 通过pop_ord更新next_seq
+        assert_eq!(seq3 + pkt3.payload_len(), stm.next_seq);
 
         assert!(stm.is_empty());
         stm.clear();
@@ -439,30 +577,31 @@ mod tests {
         assert_eq!(4, stm.len());
         assert_eq!(0, stm.next_seq);
         
-        assert_eq!(seq1, stm.peek().unwrap().seq()); // 此时pkt1在top
-        assert_eq!(seq1, stm.peek_ord().unwrap().seq());  // 看到pkt1
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
+        assert_eq!(seq1, stm.peek_pkt().unwrap().seq()); // 此时pkt1在top
+        assert_eq!(seq1, stm.peek_ord_pkt().unwrap().seq());  // 看到pkt1
+        assert_eq!(seq1, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
         assert_eq!(pkt1.seq() + pkt1.payload_len(), stm.next_seq);
 
         assert_eq!(3, stm.len());
-        assert_eq!(seq2, stm.peek().unwrap().seq()); // 此时pkt2在top        
-        assert_eq!(seq2, stm.pop_ord().unwrap().seq());   // 弹出pkt2, 通过pop_ord更新next_seq
+        assert_eq!(seq2, stm.peek_pkt().unwrap().seq()); // 此时pkt2在top        
+        assert_eq!(seq2, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt2, 通过pop_ord更新next_seq
         assert_eq!(seq2 + pkt2.payload_len(), stm.next_seq);
         
         assert_eq!(2, stm.len());
-        assert_eq!(seq3, stm.peek().unwrap().seq()); // 此时pkt3在top
-        assert_eq!(seq3, stm.pop_ord().unwrap().seq());   // 弹出pkt3, 通过pop_ord更新next_seq
+        assert_eq!(seq3, stm.peek_pkt().unwrap().seq()); // 此时pkt3在top
+        assert_eq!(seq3, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt3, 通过pop_ord更新next_seq
         
         assert_eq!(seq3 + pkt3.payload_len(), stm.next_seq);
         assert_eq!(1, stm.len());        
-        assert_eq!(seq4, stm.peek().unwrap().seq()); // 此时pkt4在top
-        assert_eq!(seq4, stm.pop_ord().unwrap().seq());   // 弹出pkt4, 通过pop_ord更新next_seq
+        assert_eq!(seq4, stm.peek_pkt().unwrap().seq()); // 此时pkt4在top
+        assert_eq!(seq4, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt4, 通过pop_ord更新next_seq
 
         assert_eq!(seq4 + pkt4.payload_len(), stm.next_seq);
         assert!(stm.is_empty());
         stm.clear();
     }
 
+    // 有中间丢包
     #[test]    
     fn test_peek_drop() {
         let mut stm = PktStrm::new();
@@ -484,22 +623,39 @@ mod tests {
         
         assert_eq!(2, stm.len());
         assert_eq!(0, stm.next_seq);
-        assert_eq!(seq1, stm.peek().unwrap().seq()); // 此时pkt1在top
-        assert_eq!(seq1, stm.peek_ord().unwrap().seq());  // 看到pkt1
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
+        assert_eq!(seq1, stm.peek_pkt().unwrap().seq()); // 此时pkt1在top
+        assert_eq!(seq1, stm.peek_ord_pkt().unwrap().seq());  // 看到pkt1
+        assert_eq!(seq1, stm.pop_ord_pkt().unwrap().seq());   // 弹出pkt1, 通过pop_ord更新next_seq
         assert_eq!(pkt1.seq() + pkt1.payload_len(), stm.next_seq);
 
         assert_eq!(1, stm.len());
-        assert_eq!(seq3, stm.peek().unwrap().seq()); // 此时pkt3在top
-        assert_eq!(None, stm.peek_ord());  
-        assert_eq!(None, stm.pop_ord());
+        assert_eq!(seq3, stm.peek_pkt().unwrap().seq()); // 此时pkt3在top
+        assert_eq!(None, stm.peek_ord_pkt());  // 但是通peek_ord_pkt 看不到pkt3
+        assert_eq!(None, stm.pop_ord_pkt());
         
         stm.clear();
     }
 
-    // 插入的包严格有序 1-10 11-20 21-30, 最后一个带fin    
+    // 带数据，带fin。是否可以set fin标记？
+    #[test]
+    fn test_pkt_fin() {
+        // 1 - 10
+        let seq1 = 1;
+        let pkt1 = build_pkt(seq1, true);
+        let _ = pkt1.decode();
+
+        let mut stm = PktStrm::new();
+        stm.push(pkt1);
+
+        let ret_pkt1 = stm.pop_ord_data();
+        assert_eq!(seq1, ret_pkt1.unwrap().seq());
+        assert!(stm.fin);
+    }
+    
+    // 插入的包严格有序 1-10 11-20 21-30, 最后一个有数据而且带fin
+    // 用pop_ord_data，才会设置fin
     #[test]    
-    fn test_stm_fin() {
+    fn test_3pkt_fin() {
         let mut stm = PktStrm::new();
         // 1 - 10
         let seq1 = 1;
@@ -518,14 +674,13 @@ mod tests {
         stm.push(pkt3);
         stm.push(pkt1.clone());
 
-        assert_eq!(seq1, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq1, stm.pop_ord_data().unwrap().seq());
         assert!(!stm.fin);
-        assert_eq!(seq2, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq2, stm.pop_ord_data().unwrap().seq());
         assert!(!stm.fin);
-        assert_eq!(seq3, stm.pop_ord().unwrap().seq());
+        assert_eq!(seq3, stm.pop_ord_data().unwrap().seq());
         assert!(stm.fin);
         assert!(stm.is_empty());        
-        stm.clear();
     }
     
     fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {

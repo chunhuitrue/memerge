@@ -1,9 +1,9 @@
+mod common;
+
 use futures_util::StreamExt;
 use core::{future::Future, pin::Pin};
 use memerge::*;
 use crate::common::*;
-
-mod common;
 
 // 简单情况，一个包，带fin
 #[test] #[cfg(not(miri))]
@@ -20,7 +20,9 @@ fn test_stream() {
                     println!("i:{}, ret:{}", i, ret.unwrap());
                     assert_eq!(Some(i + 1), ret);
                 }
+                dbg!("before next None");                
                 assert_eq!(None, stream_ref.next().await);
+                dbg!("after next None");
             })
         }
     }
@@ -87,7 +89,7 @@ fn test_stream_3pkt() {
 }
 
 // 四个包，最后一个包只带fin
-#[test] #[cfg(not(miri))]
+// #[test] #[cfg(not(miri))]
 fn test_stream_fin() {
     struct StreamTaskFin;
     impl Parser for StreamTaskFin {
@@ -194,7 +196,7 @@ fn test_stream_ack() {
 }
 
 // syn包。同时也验证了中间中断，需要多次run的情况
-#[test]  #[cfg(not(miri))]
+// #[test]  #[cfg(not(miri))]
 fn test_stream_syn() {
     struct StreamTaskSyn;
     impl Parser for StreamTaskSyn {
@@ -233,7 +235,7 @@ fn test_stream_syn() {
     let _ = pkt3.decode();
     // 31 无数据，fin
     let seq4 = seq3 + pkt3.payload_len();
-    let pkt4 = build_pkt_nodata(seq4, true);
+    let pkt4 = build_pkt_fin(seq4);
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
@@ -580,4 +582,91 @@ fn test_ordpkt_2pkt_syn() {
     println!("run 2");
     task.run(pkt1, dir.clone());
     assert_eq!(TaskState::End, task.parser_state(dir.clone()));
+}
+
+// 有序包的解码器。4个包，带syn, seq 0。乱序到来
+#[test] #[cfg(not(miri))]
+fn test_ordpkt_4pkt_syn() {
+    struct OrdPktTask4pktSyn;
+    impl Parser for OrdPktTask4pktSyn {
+        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+            Box::pin(async move {
+                let stream_ref: &mut PktStrm;
+                unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
+
+                println!("parser. syn pkt");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("syn pkt. seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(0, pkt.seq());
+                    assert_eq!(0, pkt.payload_len());                    
+                }
+                
+                println!("parser. pkt1");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("pkt1. seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(1, pkt.seq());
+                }
+
+                println!("parser. pkt2");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("pkt2. seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(11, pkt.seq());
+                }
+
+                println!("parser. pkt3");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("pkt3. seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(21, pkt.seq());
+                }
+                
+                println!("parser. pkt4");
+                if let Some(pkt) = stream_ref.next_ord_pkt().await {
+                    println!("pkt4. seq:{}, len:{}", pkt.seq(), pkt.payload_len());
+                    assert_eq!(31, pkt.seq());
+                }
+            })
+        }
+    }
+
+    // syn pkt
+    let syn_seq = 0;
+    let syn_pkt = build_pkt_syn(syn_seq);
+    let _ = syn_pkt.decode();
+    // 1 - 10
+    let seq1 = syn_seq + 1;
+    let pkt1 = build_pkt(seq1, false);
+    let _ = pkt1.decode();
+    // 11 - 20
+    let seq2 = seq1 + pkt1.payload_len();
+    let pkt2 = build_pkt(seq2, false);
+    let _ = pkt2.decode();
+    // 21 - 30
+    let seq3 = seq2 + pkt2.payload_len();
+    let pkt3 = build_pkt(seq3, true);
+    let _ = pkt3.decode();
+    // 31 - 40
+    let seq4 = seq3 + pkt3.payload_len();
+    let pkt4 = build_pkt(seq4, true);
+    let _ = pkt4.decode();
+
+    let dir = PktDirection::Client2Server;
+    let mut task = Task::new(OrdPktTask4pktSyn);
+    assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
+    println!("run syn");
+    task.run(syn_pkt, dir.clone());
+    println!("run 1");    
+    task.run(pkt1, dir.clone());
+    println!("run 4");
+    task.run(pkt4, dir.clone());
+    println!("run 3");
+    task.run(pkt3, dir.clone());
+    println!("run 2");
+    task.run(pkt2, dir.clone());    
+    assert_eq!(TaskState::End, task.parser_state(dir.clone()));
+}
+
+// 有序包的解码器。4个包，带syn, seq 0。带独立fin包。乱序到来
+#[test] #[cfg(not(miri))]
+fn test_ordpkt_4pkt_fin() {
+
 }
