@@ -78,6 +78,17 @@ impl PktStrm {
         })
     }
 
+    // peek 下一个包。包含载荷为0的。如果cache中每到来一个包，就调用，那就是原始到来的包顺序
+    pub fn next_raw_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
+        poll_fn(|_cx| {
+            if let Some(pkt) = self.peek_pkt() {
+                self.pop_pkt();
+                return Poll::Ready(Some(pkt));
+            }
+            Poll::Pending                
+        })
+    }    
+    
     // 无论是否严格seq连续，都pop一个当前包。
     // 注意：next_seq由调用者负责
     pub fn pop_pkt(&mut self) -> Option<Rc<Packet>> {
@@ -211,27 +222,6 @@ impl Stream for PktStrm {
         Poll::Pending
     }
 }
-
-// impl Stream for PktStrm {
-//     type Item = u8;
-
-//     fn poll_next(mut self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-//         if let Some(pkt) = self.peek_ord() {
-//             let index = pkt.header.borrow().as_ref().unwrap().payload_offset as u32 + (self.next_seq - pkt.seq());
-//             if pkt.syn() && pkt.payload_len() == 0 {
-//                 self.next_seq += 1;
-//                 return Poll::Pending;                
-//             }
-//             if (index as usize) < pkt.data_len {
-//                 self.next_seq += 1;
-//                 return Poll::Ready(Some(pkt.data[index as usize])); 
-//             }
-//         } else if self.fin {
-//             return Poll::Ready(None);
-//         }
-//         Poll::Pending
-//     }
-// }
 
 #[derive(Debug, Clone)]
 struct SeqPacket(Rc<Packet>);
