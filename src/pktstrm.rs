@@ -39,89 +39,6 @@ impl PktStrm {
             self.cache.push(Reverse(SeqPacket(Rc::clone(&pkt))));
         }
     }
-
-    // 无论是否严格seq连续，都peek一个当前包的clone
-    fn peek(&self) -> Option<Rc<Packet>> {
-        self.cache.peek().map(|rev_pkt| {
-            let SeqPacket(pkt) = &rev_pkt.0;
-            pkt.clone()
-        })
-    }
-
-    // peek一个seq严格有序的包。如果当前top有序，就peek，否则就none
-    fn peek_ord(&mut self) -> Option<Rc<Packet>> {
-        if self.next_seq == 0 {
-            if let Some(pkt) = self.peek() {
-                self.next_seq = pkt.seq();                
-            }
-            return self.peek();
-        }
-
-        self.top_order();
-        
-        if let Some(pkt) = self.peek() {
-            if pkt.seq() <= self.next_seq {
-                return Some(pkt);
-            }
-        }
-        None
-    }
-
-    // 清理掉top位置重复的包（但不是cache中所有重复的包）
-    fn top_order(&mut self) {
-        while let Some(pkt) = self.peek() {
-            if self.next_seq == 0 && pkt.syn() && pkt.seq() == 0 {
-                return;
-            }
-            
-            if pkt.seq() + pkt.payload_len() <= self.next_seq {
-                dbg!("top_order. clean");
-                self.pop_fin(pkt.clone());                
-                continue;
-            } else {
-                return;
-            }
-        }
-    }
-
-    // 如果有序返回pkt，否则返回none
-    // 同时会更新当前的seq。
-    pub fn pop_ord(&mut self) -> Option<Rc<Packet>> {
-        dbg!(self.len());        
-        self.top_order();
-        dbg!(self.len());
-        
-        if let Some(pkt) = self.peek_ord() {
-            if self.next_seq == 0 {
-                self.next_seq = pkt.seq() + pkt.payload_len();
-            } else if pkt.syn() && pkt.payload_len() == 0 {
-                self.next_seq += 1;
-            } else if self.next_seq == pkt.seq() {
-                self.next_seq += pkt.payload_len();                
-            } else if self.next_seq > pkt.seq() {
-                self.next_seq += pkt.payload_len() - (self.next_seq - pkt.seq());
-            }
-            
-            self.pop_fin(pkt.clone());
-            dbg!("pop_ord.return pkt");
-            return Some(pkt);
-        }
-        dbg!("pop_ord.return none");        
-        None
-    }
-    
-    fn pop_fin(&mut self, pkt: Rc<Packet>) {
-        if pkt.fin() {
-            self.fin = true;
-        }
-        self.pop();
-    }
-
-    // 无论是否严格seq连续，都pop一个当前包。
-    // 注意：next_seq由调用者负责
-    pub fn pop(&mut self) -> Option<Rc<Packet>> {
-        self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
-    }
     
     pub fn len(&self) -> usize {
         self.cache.len()
@@ -131,7 +48,6 @@ impl PktStrm {
         self.len() == 0
     }
     
-    // 链接结束
     pub fn clear(&mut self) {
         self.cache.clear();
     }
@@ -152,10 +68,7 @@ impl PktStrm {
             res
         }
     }
-
-
     
-    // ===================== 新版 ==================
     // 无论是否严格seq连续，peek一个当前最有序的包
     // 不更新next_seq
     pub fn peek_pkt(&self) -> Option<Rc<Packet>> {
@@ -168,18 +81,23 @@ impl PktStrm {
     // 无论是否严格seq连续，都pop一个当前包。
     // 注意：next_seq由调用者负责
     pub fn pop_pkt(&mut self) -> Option<Rc<Packet>> {
-        self.cache.pop().map(|rev_pkt| rev_pkt.0.0)
+        if let Some(pkt) = self.cache.pop().map(|rev_pkt| rev_pkt.0.0) {
+            if pkt.fin() {
+                self.fin = true;
+            }
+            return Some(pkt);
+        }
+        None
     }
-
+    
     // top位置去重（并非整个cache内部都去重）
     fn top_pkt_dedup(&mut self) {
         while let Some(pkt) = self.peek_pkt() {
-            if pkt.fin() {
+            if (pkt.fin() && pkt.payload_len() == 0) || (pkt.syn() && pkt.payload_len() == 0) {
                 return;
             }
             
             if pkt.seq() + pkt.payload_len() <= self.next_seq {
-                dbg!("top_pkt_dedup. pop");
                 self.pop_pkt();
                 continue;
             }
@@ -188,17 +106,16 @@ impl PktStrm {
     }
     
     // 严格有序。peek一个seq严格有序的包，可能包含payload为0的。如果当前top有序，就peek，否则就none。
-    fn peek_ord_pkt(&mut self) -> Option<Rc<Packet>> {
+    pub fn peek_ord_pkt(&mut self) -> Option<Rc<Packet>> {
         if self.next_seq == 0 {
-            if let Some(pkt) = self.peek() {
-                self.next_seq = pkt.seq();                
+            if let Some(pkt) = self.peek_pkt() {
+                self.next_seq = pkt.seq();
             }
-            dbg!("peek_ord_pkt return peek");
-            return self.peek();
+            return self.peek_pkt();
         }
 
         self.top_pkt_dedup();
-        if let Some(pkt) = self.peek() {
+        if let Some(pkt) = self.peek_pkt() {
             if pkt.seq() <= self.next_seq {
                 return Some(pkt);
             }
@@ -210,7 +127,6 @@ impl PktStrm {
     // 并不需要关心fin标记，这不是pkt这一层关心的问题
     pub fn pop_ord_pkt(&mut self) -> Option<Rc<Packet>> {
         if let Some(pkt) = self.peek_ord_pkt() {
-            dbg!(pkt.seq());
             if pkt.syn() && pkt.payload_len() == 0 {
                 self.next_seq += 1;                
             } else if self.next_seq == pkt.seq() {
@@ -223,35 +139,23 @@ impl PktStrm {
         }
         None
     }
-    
+
     // 严格有序。下一个有序的包。包含载荷为0的
     pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
         poll_fn(|_cx| {
             if let Some(pkt) = self.pop_ord_pkt() {
-                Poll::Ready(Some(pkt))
-            } else {
-                Poll::Pending                
+                return Poll::Ready(Some(pkt));
             }
+            if self.fin {
+                return Poll::Ready(None);
+            }
+            Poll::Pending                
         })
     }    
-
-    // // 严格有序。下一个有序的包。包含载荷为0的
-    // pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
-    //     poll_fn(|_cx| {
-    //         if let Some(pkt) = self.pop_ord_pkt() {
-    //             Poll::Ready(Some(pkt))
-    //         } else {
-    //             Poll::Pending                
-    //         }
-    //     })
-    // }    
     
     // 严格有序的数据。peek出一个带数据的严格有序的包。否则为none
     pub fn peek_ord_data(&mut self) -> Option<Rc<Packet>> {
         while let Some(pkt) = self.peek_ord_pkt() {
-            if pkt.fin() {
-                self.fin = true;
-            }
             if pkt.payload_len() == 0 {
                 self.pop_ord_pkt();
                 continue;
@@ -456,11 +360,11 @@ mod tests {
         stm.push(pkt3);
         
         assert_eq!(1, stm.peek_pkt().unwrap().seq());
-        stm.pop();
+        stm.pop_pkt();
         assert_eq!(30, stm.peek_pkt().unwrap().seq());
-        stm.pop();
+        stm.pop_pkt();
         assert_eq!(80, stm.peek_pkt().unwrap().seq());
-        stm.pop();        
+        stm.pop_pkt();        
         assert!(stm.is_empty());
         stm.clear();        
     }
