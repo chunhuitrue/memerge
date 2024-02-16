@@ -33,7 +33,7 @@ fn test_stream() {
     let _ = pkt1.decode();
 
     let dir = PktDirection::Client2Server;        
-    let mut task = Task::new(StreamTask);
+    let mut task = Task::new_with_parser(StreamTask);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(pkt1, dir.clone());
     assert_eq!(TaskState::End, task.parser_state(dir.clone()));
@@ -77,7 +77,7 @@ fn test_stream_3pkt() {
     let _ = pkt3.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(StreamTask3pkt);
+    let mut task = Task::new_with_parser(StreamTask3pkt);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
@@ -128,7 +128,7 @@ fn test_stream_fin() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(StreamTaskFin);
+    let mut task = Task::new_with_parser(StreamTaskFin);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
@@ -185,7 +185,7 @@ fn test_stream_ack() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(StreamTaskAck);
+    let mut task = Task::new_with_parser(StreamTaskAck);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(pkt1, dir.clone());
     task.run(pkt3, dir.clone());
@@ -241,7 +241,7 @@ fn test_stream_syn() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(StreamTaskSyn);
+    let mut task = Task::new_with_parser(StreamTaskSyn);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt2, dir.clone());
@@ -295,7 +295,7 @@ fn test_readn() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(StreamTaskReadn);
+    let mut task = Task::new_with_parser(StreamTaskReadn);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt4, dir.clone());        
@@ -345,7 +345,7 @@ fn test_readline() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(StreamTaskReadLine);
+    let mut task = Task::new_with_parser(StreamTaskReadLine);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(syn_pkt, dir.clone());
     task.run(pkt4, dir.clone());        
@@ -404,7 +404,7 @@ fn test_ordpkt() {
     let _ = pkt3.decode();
     
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask);
+    let mut task = Task::new_with_parser(OrdPktTask);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");    
     task.run(pkt1, dir.clone());
@@ -462,7 +462,7 @@ fn test_ordpkt_3pkt() {
     let _ = pkt3.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask3pkt);
+    let mut task = Task::new_with_parser(OrdPktTask3pkt);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");    
     task.run(pkt1, dir.clone());
@@ -531,7 +531,7 @@ fn test_ordpkt_4pkt() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask4pkt);
+    let mut task = Task::new_with_parser(OrdPktTask4pkt);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");    
     task.run(pkt1, dir.clone());
@@ -580,7 +580,7 @@ fn test_ordpkt_2pkt_syn() {
     let _ = pkt1.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask2pktSyn);
+    let mut task = Task::new_with_parser(OrdPktTask2pktSyn);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");    
     task.run(syn_pkt, dir.clone());
@@ -655,7 +655,7 @@ fn test_ordpkt_4pkt_syn() {
     let _ = pkt4.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask4pktSyn);
+    let mut task = Task::new_with_parser(OrdPktTask4pktSyn);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run syn");
     task.run(syn_pkt, dir.clone());
@@ -709,7 +709,7 @@ fn test_ordpkt_2pkt_fin() {
     let _ = fin_pkt.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask2pktSynFin);
+    let mut task = Task::new_with_parser(OrdPktTask2pktSynFin);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run 1");
     task.run(pkt1, dir.clone());
@@ -798,7 +798,7 @@ fn test_ordpkt_4pkt_fin() {
     let _ = fin_pkt.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(OrdPktTask4pktSynFin);
+    let mut task = Task::new_with_parser(OrdPktTask4pktSynFin);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     println!("run syn");
     task.run(syn_pkt, dir.clone());

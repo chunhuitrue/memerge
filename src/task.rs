@@ -9,16 +9,32 @@ use crate::PktStrm;
 pub struct Task {
     stream_c2s: Box<PktStrm>,
     stream_s2c: Box<PktStrm>,
-    c2s_parser: Pin<Box<dyn Future<Output = ()>>>,
-    s2c_parser: Pin<Box<dyn Future<Output = ()>>>,
-    bdir_parser: Pin<Box<dyn Future<Output = ()>>>,
+    c2s_parser: Option<Pin<Box<dyn Future<Output = ()>>>>,
+    s2c_parser: Option<Pin<Box<dyn Future<Output = ()>>>>,
+    bdir_parser: Option<Pin<Box<dyn Future<Output = ()>>>>,
     c2s_state: TaskState,
     s2c_state: TaskState,
     bdir_state: TaskState,
 }
 
 impl Task {
-    pub fn new(parser: impl Parser) -> Task {
+    pub fn new() -> Task {
+        let stream_c2s = Box::new(PktStrm::new());
+        let stream_s2c = Box::new(PktStrm::new());
+        
+        Task {
+            stream_c2s,
+            stream_s2c,
+            c2s_parser: None,
+            s2c_parser: None,
+            bdir_parser: None,
+            c2s_state: TaskState::Start,
+            s2c_state: TaskState::Start,
+            bdir_state: TaskState::Start,
+        }
+    }
+    
+    pub fn new_with_parser(parser: impl Parser) -> Task {
         let stream_c2s = Box::new(PktStrm::new());
         let stream_s2c = Box::new(PktStrm::new());
         let p_stream_c2s: *const PktStrm = &*stream_c2s;        
@@ -30,13 +46,25 @@ impl Task {
         Task {
             stream_c2s,
             stream_s2c,
-            c2s_parser,
-            s2c_parser,
-            bdir_parser,
+            c2s_parser: Some(c2s_parser),
+            s2c_parser: Some(s2c_parser),
+            bdir_parser: Some(bdir_parser),
             c2s_state: TaskState::Start,
             s2c_state: TaskState::Start,
             bdir_state: TaskState::Start,
         }
+    }
+
+    pub fn init_parser(&mut self, parser: impl Parser) {
+        let p_stream_c2s: *const PktStrm = &*(self.stream_c2s);
+        let p_stream_s2c: *const PktStrm = &*(self.stream_s2c);
+        let c2s_parser = parser.c2s_parser(p_stream_c2s);
+        let s2c_parser = parser.s2c_parser(p_stream_s2c);
+        let bdir_parser = parser.bdir_parser(p_stream_c2s, p_stream_s2c);
+
+        self.c2s_parser = Some(c2s_parser);
+        self.s2c_parser = Some(s2c_parser);
+        self.bdir_parser = Some(bdir_parser);
     }
     
     pub fn run(&mut self, pkt: Rc<Packet>, pkt_dir: PktDirection) {    
@@ -59,11 +87,13 @@ impl Task {
             return;
         }
 
-        let waker = dummy_waker();
-        let mut context = Context::from_waker(&waker);
-        match self.c2s_parser.as_mut().poll(&mut context) {
-            Poll::Ready(()) => { self.c2s_state = TaskState::End }
-            Poll::Pending => {}
+        if let Some(parser) = &mut self.c2s_parser {
+            let waker = dummy_waker();
+            let mut context = Context::from_waker(&waker);
+            match Pin::as_mut(parser).poll(&mut context) {            
+                Poll::Ready(()) => { self.c2s_state = TaskState::End }
+                Poll::Pending => {}
+            }  
         }
     }
 
@@ -72,24 +102,28 @@ impl Task {
             return;
         }
 
-        let waker = dummy_waker();
-        let mut context = Context::from_waker(&waker);
-        match self.s2c_parser.as_mut().poll(&mut context) {
-            Poll::Ready(()) => { self.s2c_state = TaskState::End }
-            Poll::Pending => {}
+        if let Some(parser) = &mut self.s2c_parser {
+            let waker = dummy_waker();
+            let mut context = Context::from_waker(&waker);
+            match Pin::as_mut(parser).poll(&mut context) {            
+                Poll::Ready(()) => { self.s2c_state = TaskState::End }
+                Poll::Pending => {}
+            }  
         }
     }
-
+    
     fn bdir_run(&mut self) {
         if self.bdir_state == TaskState::End {
             return;
         }
 
-        let waker = dummy_waker();
-        let mut context = Context::from_waker(&waker);
-        match self.bdir_parser.as_mut().poll(&mut context) {
-            Poll::Ready(()) => { self.bdir_state = TaskState::End }
-            Poll::Pending => {}
+        if let Some(parser) = &mut self.bdir_parser {
+            let waker = dummy_waker();
+            let mut context = Context::from_waker(&waker);
+            match Pin::as_mut(parser).poll(&mut context) {            
+                Poll::Ready(()) => { self.bdir_state = TaskState::End }
+                Poll::Pending => {}
+            }  
         }
     }
 
@@ -102,6 +136,12 @@ impl Task {
         }
     }
     
+}
+
+impl Default for Task {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl fmt::Debug for Task {
@@ -180,7 +220,7 @@ mod tests {
         let _ = pkt2.decode();
 
         let dir = PktDirection::Client2Server;
-        let mut task = Task::new(TestTask);
+        let mut task = Task::new_with_parser(TestTask);
         println!("after task new");
         assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
         task.run(pkt1, dir.clone());

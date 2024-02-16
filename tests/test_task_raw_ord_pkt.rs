@@ -47,7 +47,7 @@ fn test_raw_ord_3pkt() {
     let _ = pkt3.decode();
 
     let dir = PktDirection::Client2Server;
-    let mut task = Task::new(RawOrd3pkt);
+    let mut task = Task::new_with_parser(RawOrd3pkt);
     assert_eq!(TaskState::Start, task.parser_state(dir.clone()));
     task.run(pkt3, dir.clone());
     task.run(pkt2, dir.clone());
