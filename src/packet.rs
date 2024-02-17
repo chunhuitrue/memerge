@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use etherparse::{PacketHeaders, Ethernet2Header, VlanHeader, IpHeader, TransportHeader};
 use std::cell::RefCell;
 use std::fmt;

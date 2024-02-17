@@ -3,6 +3,42 @@
 use etherparse::*;
 use memerge::*;
 use std::rc::Rc;
+use pcap::Capture as PcapCap;
+use pcap::Offline;
+use std::path::Path;
+
+#[derive(Debug)]
+pub enum CaptureError {
+}
+
+pub struct Capture {
+    cap: PcapCap<Offline>,
+    pkt_num: u64
+}
+
+impl Capture {
+    pub fn init<P: AsRef<Path>>(path: P) -> Result<Capture, CaptureError> {
+        let capture = Capture {
+            cap: PcapCap::from_file(path).unwrap(),
+            pkt_num: 0
+        };
+        Ok(capture)
+    }
+
+    pub fn next_packet(&mut self, timestamp: u128) -> Option<Rc<Packet>> {
+        self.pkt_num += 1;
+        match self.cap.next_packet() {
+            Ok(pcap_pkt) => {
+                if pcap_pkt.header.caplen > MAX_PACKET_LEN.try_into().unwrap() {
+                    return None;
+                }
+
+                Some(Packet::new(timestamp, pcap_pkt.header.caplen.try_into().unwrap(), pcap_pkt.data))
+            }
+            Err(_) => None,
+        }
+    }
+}
 
 pub fn build_pkt_nodata(seq: u32, fin: bool) -> Rc<Packet> {
     //setup the packet headers
