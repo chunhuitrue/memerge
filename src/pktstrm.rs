@@ -9,7 +9,6 @@ use futures::future;
 use futures::Future;
 use futures::future::poll_fn;
 use crate::Packet;
-use crate::util::*;
 
 const MAX_CACHE_PKTS: usize = 32;
 
@@ -58,27 +57,18 @@ impl PktStrm {
     pub async fn readn(&mut self, num: usize) -> Vec<u8> {
         self.take(num).collect::<Vec<u8>>().await
     }
-
-    pub async fn readline(&mut self) -> Vec<u8> {
+    
+    pub async fn readline(&mut self) -> Result<String, std::string::FromUtf8Error> {
         let mut res = self.take_while(|x| future::ready(*x != b'\n')).collect::<Vec<u8>>().await;
         if res.is_empty() {
-            res
+            String::from_utf8(res)
         } else {
             res.push(b'\n');
-            res
+            String::from_utf8(res)
         }
     }
-    
-    // 无论是否严格seq连续，peek一个当前最有序的包
-    // 不更新next_seq
-    pub fn peek_pkt(&self) -> Option<Rc<Packet>> {
-        self.cache.peek().map(|rev_pkt| {
-            let SeqPacket(pkt) = &rev_pkt.0;
-            pkt.clone()
-        })
-    }
 
-    // peek 下一个包。包含载荷为0的。如果cache中每到来一个包，就调用，那就是原始到来的包顺序
+    // 异步方式获取下一个原始顺序的包。包含载荷为0的。如果cache中每到来一个包，就调用，那就是原始到来的包顺序
     pub fn next_raw_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
         poll_fn(|_cx| {
             if let Some(pkt) = self.peek_pkt() {
@@ -88,6 +78,28 @@ impl PktStrm {
             Poll::Pending                
         })
     }    
+
+    // 异步方式获取下一个严格有序的包。包含载荷为0的
+    pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
+        poll_fn(|_cx| {
+            if let Some(pkt) = self.pop_ord_pkt() {
+                return Poll::Ready(Some(pkt));
+            }
+            if self.fin {
+                return Poll::Ready(None);
+            }
+            Poll::Pending                
+        })
+    }    
+    
+    // 无论是否严格seq连续，peek一个当前最有序的包
+    // 不更新next_seq
+    pub fn peek_pkt(&self) -> Option<Rc<Packet>> {
+        self.cache.peek().map(|rev_pkt| {
+            let SeqPacket(pkt) = &rev_pkt.0;
+            pkt.clone()
+        })
+    }
     
     // 无论是否严格seq连续，都pop一个当前包。
     // 注意：next_seq由调用者负责
@@ -150,19 +162,6 @@ impl PktStrm {
         }
         None
     }
-
-    // 严格有序。下一个有序的包。包含载荷为0的
-    pub fn next_ord_pkt(&mut self) -> impl Future<Output = Option<Rc<Packet>>> + '_ {
-        poll_fn(|_cx| {
-            if let Some(pkt) = self.pop_ord_pkt() {
-                return Poll::Ready(Some(pkt));
-            }
-            if self.fin {
-                return Poll::Ready(None);
-            }
-            Poll::Pending                
-        })
-    }    
     
     // 严格有序的数据。peek出一个带数据的严格有序的包。否则为none
     pub fn peek_ord_data(&mut self) -> Option<Rc<Packet>> {
@@ -215,10 +214,8 @@ impl Stream for PktStrm {
             }
         }
         if self.fin {
-            dbg!("poll next. ready none");
             return Poll::Ready(None);
         }
-        dbg!("poll next. pending", self.fin);
         Poll::Pending
     }
 }
@@ -228,12 +225,7 @@ struct SeqPacket(Rc<Packet>);
 
 impl PartialEq for SeqPacket {
     fn eq(&self, other: &Self) -> bool {
-        match (&self.0.header.borrow().as_ref().unwrap().transport, &other.0.header.borrow().as_ref().unwrap().transport) {
-            (Some(TransportHeader::Tcp(s_tcph)), Some(TransportHeader::Tcp(o_tcph))) => {
-                s_tcph.sequence_number == o_tcph.sequence_number
-            }
-            _ => false,
-        }
+        self.0.seq() == other.0.seq()
     }
 }
 
@@ -247,12 +239,7 @@ impl PartialOrd for SeqPacket {
 
 impl Ord for SeqPacket {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (&self.0.header.borrow().as_ref().unwrap().transport, &other.0.header.borrow().as_ref().unwrap().transport) {
-            (Some(TransportHeader::Tcp(s_tcph)), Some(TransportHeader::Tcp(o_tcph))) => {
-                ntohl(s_tcph.sequence_number).cmp(&ntohl(o_tcph.sequence_number))
-            }
-            _ => Ordering::Equal,
-        }
+        self.0.seq().cmp(&other.0.seq())
     }
 }
 
@@ -555,14 +542,17 @@ mod tests {
         let seq1 = 1;
         let pkt1 = build_pkt(seq1, false);
         let _ = pkt1.decode();
+        println!("pkt1. seq1: {}, pkt1 seq: {}, port: {}", seq1, pkt1.seq(), pkt1.header.borrow().as_ref().unwrap().sport());
         // 11 - 20
         let seq2 = seq1 + pkt1.payload_len();
         let pkt2 = build_pkt(seq2, false);
         let _ = pkt2.decode();
+        println!("pkt2. seq2: {}, pkt2 seq: {}", seq2, pkt2.seq());
         // 21 - 30
         let seq3 = seq2 + pkt2.payload_len();
         let pkt3 = build_pkt(seq3, true);
         let _ = pkt3.decode();
+        println!("pkt3. seq3: {}, pkt3 seq: {}", seq3, pkt3.seq());
 
         stm.push(pkt2.clone());
         stm.push(pkt3);
@@ -586,8 +576,8 @@ mod tests {
                   [192,168,1,2], //desitionation ip
                   20)            //time to life
             .tcp(25,    //source port 
-                 htons(4000),  //desitnation port
-                 htonl(seq),     //sequence number
+                 4000,  //desitnation port
+                 seq,     //sequence number
                  1024) //window size
         //set additional tcp header fields
             .ns() //set the ns flag

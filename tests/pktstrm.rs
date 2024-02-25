@@ -2,6 +2,10 @@ mod common;
 
 use crate::common::*;
 use memerge::*;
+use std::env;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const SMTP_PORT_NET: u16 = 25;
 
 // pop_ord_pkt. 一个syn，一个正常包。
 #[test]
@@ -210,4 +214,87 @@ fn test_pop_ord_fin_4pkt() {
     let ret_fin = stm.pop_ord_pkt();
     assert_eq!(fin_seq, ret_fin.clone().unwrap().seq());
     assert_eq!(0, ret_fin.unwrap().payload_len());
+}
+
+#[test]
+fn test_pcap_smtp() {
+    let project_root = env::current_dir().unwrap();
+    let file_path = project_root.join("tests/smtp.pcap");
+    let mut cap = Capture::init(file_path).unwrap();
+    let mut stm = PktStrm::new();
+
+    loop {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+        let pkt = cap.next_packet(now);
+        if pkt.is_none() {
+            println!("no pkt quit");
+            break;
+        }
+        let pkt = pkt.unwrap();
+        if pkt.decode().is_err() {
+            println!("decode continue");            
+            continue;
+        }
+
+        if pkt.header.borrow().as_ref().unwrap().dport() == SMTP_PORT_NET {
+            println!("push");
+            stm.push(pkt);
+        }
+    }
+    println!("read pkt end. stm len: {}", stm.len());
+
+    let pkt = stm.pop_ord_data().unwrap();
+    println!("dport: {}, seq: {}, payload_len: {}", pkt.header.borrow().as_ref().unwrap().dport(), pkt.seq(), pkt.payload_len());
+    assert_eq!(1341098158, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098176, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098188, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098222, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098236, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098286, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098323, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098329, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341098728, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341100152, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341101576, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341102823, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341104247, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341105671, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341106918, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341108342, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341108886, pkt.seq());
+
+    let pkt = stm.pop_ord_data().unwrap();    
+    assert_eq!(1341108891, pkt.seq());
 }

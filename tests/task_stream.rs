@@ -1,5 +1,6 @@
 mod common;
 
+use futures_channel::mpsc;
 use futures_util::StreamExt;
 use core::{future::Future, pin::Pin};
 use memerge::*;
@@ -10,7 +11,7 @@ use crate::common::*;
 fn test_stream() {
     struct StreamTask;
     impl Parser for StreamTask {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -44,7 +45,7 @@ fn test_stream() {
 fn test_stream_3pkt() {
     struct StreamTask3pkt;
     impl Parser for StreamTask3pkt {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -93,7 +94,7 @@ fn test_stream_3pkt() {
 fn test_stream_fin() {
     struct StreamTaskFin;
     impl Parser for StreamTaskFin {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -146,7 +147,7 @@ fn test_stream_fin() {
 fn test_stream_ack() {
     struct StreamTaskAck;
     impl Parser for StreamTaskAck {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -200,7 +201,7 @@ fn test_stream_ack() {
 fn test_stream_syn() {
     struct StreamTaskSyn;
     impl Parser for StreamTaskSyn {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -256,7 +257,7 @@ fn test_stream_syn() {
 fn test_readn() {
     struct StreamTaskReadn;
     impl Parser for StreamTaskReadn {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -310,19 +311,19 @@ fn test_readn() {
 fn test_readline() {
     struct StreamTaskReadLine;
     impl Parser for StreamTaskReadLine {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
 
-                let res = stream_ref.readline().await;
-                assert_eq!(*b"1234\r\n", res.as_slice());
-                let res = stream_ref.readline().await;
-                assert_eq!(*b"56781234\r\n", res.as_slice());
-                let res = stream_ref.readline().await;
-                assert_eq!(*b"56\r\n", res.as_slice());
-                let res = stream_ref.readline().await;        
-                assert_eq!(Vec::<u8>::new(), res);
+                let res = stream_ref.readline().await.unwrap();
+                assert_eq!("1234\r\n", &res);
+                let res = stream_ref.readline().await.unwrap();
+                assert_eq!("56781234\r\n", &res);
+                let res = stream_ref.readline().await.unwrap();
+                assert_eq!("56\r\n", &res);
+                let res = stream_ref.readline().await.unwrap();
+                assert_eq!("", res);
             })
         }
     }
@@ -359,7 +360,7 @@ fn test_readline() {
 fn test_ordpkt() {
     struct OrdPktTask;
     impl Parser for OrdPktTask {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -420,7 +421,7 @@ fn test_ordpkt() {
 fn test_ordpkt_3pkt() {
     struct OrdPktTask3pkt;
     impl Parser for OrdPktTask3pkt {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -478,7 +479,7 @@ fn test_ordpkt_3pkt() {
 fn test_ordpkt_4pkt() {
     struct OrdPktTask4pkt;
     impl Parser for OrdPktTask4pkt {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -549,7 +550,7 @@ fn test_ordpkt_4pkt() {
 fn test_ordpkt_2pkt_syn() {
     struct OrdPktTask2pktSyn;
     impl Parser for OrdPktTask2pktSyn {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -594,7 +595,7 @@ fn test_ordpkt_2pkt_syn() {
 fn test_ordpkt_4pkt_syn() {
     struct OrdPktTask4pktSyn;
     impl Parser for OrdPktTask4pktSyn {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -675,7 +676,7 @@ fn test_ordpkt_4pkt_syn() {
 fn test_ordpkt_2pkt_fin() {
     struct OrdPktTask2pktSynFin;
     impl Parser for OrdPktTask2pktSynFin {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -723,7 +724,7 @@ fn test_ordpkt_2pkt_fin() {
 fn test_ordpkt_4pkt_fin() {
     struct OrdPktTask4pktSynFin;
     impl Parser for OrdPktTask4pktSynFin {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }

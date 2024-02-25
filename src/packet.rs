@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::util::*;
 
 pub const MAX_PACKET_LEN: usize = 2048;
 
@@ -83,10 +82,10 @@ impl Packet {
             Err(_) => Err(PacketError::DecodeErr),
         }
     }
-
+    
     pub fn seq(&self) -> u32 {
         if let Some(TransportHeader::Tcp(tcph)) = &self.header.borrow().as_ref().unwrap().transport {
-            ntohl(tcph.sequence_number)
+            tcph.sequence_number            
         } else {
             0
         }

@@ -1,5 +1,6 @@
 mod common;
 
+use futures_channel::mpsc;
 use core::{future::Future, pin::Pin};
 use memerge::*;
 use crate::common::*;
@@ -9,7 +10,7 @@ use crate::common::*;
 fn test_raw_ord_3pkt() {
     struct RawOrd3pkt;
     impl Parser for RawOrd3pkt {
-        fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {        
+        fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {        
             Box::pin(async move {
                 let stream_ref: &mut PktStrm;
                 unsafe { stream_ref = &mut *(stream as *mut PktStrm); }

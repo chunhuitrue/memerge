@@ -49,8 +49,8 @@ pub fn build_pkt_nodata(seq: u32, fin: bool) -> Rc<Packet> {
               [192,168,1,2], //desitionation ip
               20)            //time to life
         .tcp(25,    //source port 
-             htons(4000),  //desitnation port
-             htonl(seq),     //sequence number
+             4000,  //desitnation port
+             seq,     //sequence number
              1024) //window size
     //set additional tcp header fields
         .ns() //set the ns flag
@@ -87,13 +87,13 @@ pub fn build_pkt_ack(seq: u32, ack_seq: u32) -> Rc<Packet> {
               [192,168,1,2], //desitionation ip
               20)            //time to life
         .tcp(25,    //source port 
-             htons(4000),  //desitnation port
-             htonl(seq),     //sequence number
+             4000,  //desitnation port
+             seq,     //sequence number
              1024) //window size
     //set additional tcp header fields
         .ns() //set the ns flag
     //supported flags: ns(), fin(), syn(), rst(), psh(), ece(), cwr()
-        .ack(htonl(ack_seq)) //ack flag + the ack number
+        .ack(ack_seq) //ack flag + the ack number
         .urg(23) //urg flag + urgent pointer
         .options(&[
             TcpOptionElement::Noop,
@@ -122,8 +122,8 @@ pub fn build_pkt_syn(seq: u32) -> Rc<Packet> {
               [192,168,1,2], //desitionation ip
               20)            //time to life
         .tcp(25,    //source port 
-             htons(4000),  //desitnation port
-             htonl(seq),     //sequence number
+             4000,  //desitnation port
+             seq,     //sequence number
              1024) //window size
     //set additional tcp header fields
         .ns() //set the ns flag
@@ -160,8 +160,8 @@ pub fn build_pkt_line(seq: u32, payload: [u8;10]) -> Rc<Packet> {
               [192,168,1,2], //desitionation ip
               20)            //time to life
         .tcp(25,    //source port 
-             htons(4000),  //desitnation port
-             htonl(seq),     //sequence number
+             4000,  //desitnation port
+             seq,     //sequence number
              1024) //window size
     //set additional tcp header fields
         .ns() //set the ns flag
@@ -192,8 +192,8 @@ pub fn build_pkt(seq: u32, fin: bool) -> Rc<Packet> {
               [192,168,1,2], //desitionation ip
               20)            //time to life
         .tcp(25,    //source port 
-             htons(4000),  //desitnation port
-             htonl(seq),     //sequence number
+             4000,  //desitnation port
+             seq,     //sequence number
              1024) //window size
     //set additional tcp header fields
         .ns() //set the ns flag

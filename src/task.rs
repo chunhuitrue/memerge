@@ -1,10 +1,14 @@
 use core::{future::Future, pin::Pin, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
-use std::rc::Rc;
+use futures_channel::mpsc;
 use std::fmt;
 use crate::Packet;
+use std::rc::Rc;
 use crate::PktDirection;
 use crate::Parser;
 use crate::PktStrm;
+use crate::Meta;
+
+const MAX_CHANNEL_SIZE: usize = 64;
 
 pub struct Task {
     stream_c2s: Box<PktStrm>,
@@ -15,6 +19,7 @@ pub struct Task {
     c2s_state: TaskState,
     s2c_state: TaskState,
     bdir_state: TaskState,
+    meta_rx: Option<mpsc::Receiver<Meta>>,
 }
 
 impl Task {
@@ -31,17 +36,19 @@ impl Task {
             c2s_state: TaskState::Start,
             s2c_state: TaskState::Start,
             bdir_state: TaskState::Start,
+            meta_rx: None,
         }
     }
     
     pub fn new_with_parser(parser: impl Parser) -> Task {
         let stream_c2s = Box::new(PktStrm::new());
         let stream_s2c = Box::new(PktStrm::new());
+        let (tx, rx) = mpsc::channel(MAX_CHANNEL_SIZE);
         let p_stream_c2s: *const PktStrm = &*stream_c2s;        
         let p_stream_s2c: *const PktStrm = &*stream_s2c;
-        let c2s_parser = parser.c2s_parser(p_stream_c2s);
-        let s2c_parser = parser.s2c_parser(p_stream_s2c);
-        let bdir_parser = parser.bdir_parser(p_stream_c2s, p_stream_s2c);
+        let c2s_parser = parser.c2s_parser(p_stream_c2s, tx.clone());
+        let s2c_parser = parser.s2c_parser(p_stream_s2c, tx.clone());
+        let bdir_parser = parser.bdir_parser(p_stream_c2s, p_stream_s2c, tx.clone());
         
         Task {
             stream_c2s,
@@ -52,25 +59,28 @@ impl Task {
             c2s_state: TaskState::Start,
             s2c_state: TaskState::Start,
             bdir_state: TaskState::Start,
+            meta_rx: Some(rx),
         }
     }
 
     pub fn init_parser(&mut self, parser: impl Parser) {
         let p_stream_c2s: *const PktStrm = &*(self.stream_c2s);
         let p_stream_s2c: *const PktStrm = &*(self.stream_s2c);
-        let c2s_parser = parser.c2s_parser(p_stream_c2s);
-        let s2c_parser = parser.s2c_parser(p_stream_s2c);
-        let bdir_parser = parser.bdir_parser(p_stream_c2s, p_stream_s2c);
+        let (tx, rx) = mpsc::channel(MAX_CHANNEL_SIZE);        
+        let c2s_parser = parser.c2s_parser(p_stream_c2s, tx.clone());
+        let s2c_parser = parser.s2c_parser(p_stream_s2c, tx.clone());
+        let bdir_parser = parser.bdir_parser(p_stream_c2s, p_stream_s2c, tx.clone());
 
         self.c2s_parser = Some(c2s_parser);
         self.s2c_parser = Some(s2c_parser);
         self.bdir_parser = Some(bdir_parser);
+        self.meta_rx = Some(rx);
     }
     
     pub fn run(&mut self, pkt: Rc<Packet>, pkt_dir: PktDirection) {    
         match pkt_dir {
             PktDirection::Client2Server => {
-                self.stream_c2s.push(pkt);                
+                self.stream_c2s.push(pkt);
                 self.c2s_run();
             }
             PktDirection::Server2Client => {
@@ -127,6 +137,19 @@ impl Task {
         }
     }
 
+    pub fn get_meta(&mut self) -> Option<Meta> {
+        self.meta_rx.as_ref()?;
+
+        if let Some(rx) = self.meta_rx.as_mut() {
+            match rx.try_next() {
+                Ok(meta) => meta,
+                _ => None
+            }
+        } else {
+            None
+        }
+    }
+    
     pub fn parser_state(&self, dir: PktDirection) -> TaskState {
         match dir {
             PktDirection::Client2Server => self.c2s_state,
@@ -135,7 +158,14 @@ impl Task {
             PktDirection::Unknown => TaskState::Error
         }
     }
-    
+
+    pub fn steeam_len(&self, dir: PktDirection) -> usize {
+        match dir {
+            PktDirection::Client2Server => self.stream_c2s.len(),
+            PktDirection::Server2Client => self.stream_s2c.len(),
+            _ => 0,
+        }
+    }
 }
 
 impl Default for Task {
@@ -184,14 +214,13 @@ mod tests {
     use super::*;
     use etherparse::*;
     use futures_util::StreamExt;    
-    use crate::{htons, htonl};
     use crate::PktDirection;
 
     #[test] #[cfg(not(miri))]
     fn test_task() {
         struct TestTask;
         impl Parser for TestTask {
-            fn c2s_parser(&self, stream: *const PktStrm) -> Pin<Box<dyn Future<Output = ()>>> {
+            fn c2s_parser(&self, stream: *const PktStrm, _meta_tx: mpsc::Sender<Meta>) -> Pin<Box<dyn Future<Output = ()>>> {
                 Box::pin(async move {
                     let stream_ref: &mut PktStrm;
                     unsafe { stream_ref = &mut *(stream as *mut PktStrm); }
@@ -238,8 +267,8 @@ mod tests {
                   [192,168,1,2], //desitionation ip
                   20)            //time to life
             .tcp(25,    //source port 
-                 htons(4000),  //desitnation port
-                 htonl(seq),     //sequence number
+                 4000,  //desitnation port
+                 seq,     //sequence number
                  1024) //window size
         //set additional tcp header fields
             .ns() //set the ns flag
