@@ -3,6 +3,7 @@ mod packet;
 mod util;
 mod task;
 mod parser;
+mod ffi;
 
 pub use util::*;
 pub use packet::*;
