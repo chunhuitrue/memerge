@@ -9,7 +9,17 @@
 #include "../include/memerge.h"
 
 int main(void) {
-  uint32_t sum = addition(1, 2);
-  printf("%u\n", sum);
-  return 0;
+    uint32_t sum = addition(1, 2);
+    printf("%u\n", sum);
+
+
+    task_t *task = NULL;
+    task = task_new();
+    if (!task) {
+        printf("task new err\n");
+    }
+    printf("task new ok\n");
+    task_free(task);
+    
+    return 0;
 }
