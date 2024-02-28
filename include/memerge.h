@@ -4,12 +4,13 @@
 #include <stdint.h>
 
 typedef struct task_s task_t;
+typedef enum {
+    Smtp,
+    Http,
+} ParserType;
 
 extern task_t *task_new();
 extern void task_free(task_t *task);
-
-
-
-extern uint32_t addition(uint32_t, uint32_t);
-
+extern task_t *task_new_with_parser(ParserType parser_type);
+extern void init_parser(task_t *task, ParserType parser_type);
 #endif
