@@ -10,15 +10,15 @@
 
 int main(void) {
     task_t *task = NULL;
-
-
+    uint8_t pkt[] = {1,2,3,4,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+    
     task = task_new();
     if (!task) {
         printf("task new err\n");
     }
     printf("task new ok\n");
-    init_parser(task, Smtp);
-    printf("after init_parser\n");    
+    task_init_parser(task, Smtp);
+    printf("after task_init_parser\n");    
     task_free(task);
     task = NULL;
 
@@ -33,9 +33,13 @@ int main(void) {
         printf("task new_with_parser smtp. return NULL... error\n");
     }
     printf("task new_with_parser smtp. return... ok\n");
+
+    printf("task run. pktlen: %lu\n", sizeof(pkt));
+    task_run(task, pkt, sizeof(pkt), C2s, 999);
+    printf("task run. 222\n");
     task_free(task);
     task = NULL;
-    
-    
+
+
     return 0;
 }
