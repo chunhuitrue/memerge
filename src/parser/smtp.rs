@@ -78,9 +78,7 @@ impl Parser for SmtpParser {
             let _ = stm.readline().await.unwrap().trim_end_matches("\r\n").to_string();            
 
             // mail head
-            let (_content_type, bdry) = mail_head(stm, &mut meta_tx).await;
-            println!("get boundary: {}", bdry);
-
+            let (_content_type, _bdry) = mail_head(stm, &mut meta_tx).await;
         })
     }
 }

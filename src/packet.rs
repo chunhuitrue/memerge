@@ -69,9 +69,7 @@ impl Packet {
     pub fn decode(&self) -> Result<(), PacketError> {
         match PacketHeaders::from_ethernet_slice(self) {
             Ok(headers) => {
-                println!("decode ok header");
                 if headers.ip.is_none() || headers.transport.is_none()  {
-                    println!("decode errrrr");                    
                     return Err(PacketError::DecodeErr);
                 } 
                 
