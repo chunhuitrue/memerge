@@ -1,6 +1,6 @@
 # LD_LIBRARY_PATH=target/debug/ ./c-example
 CC=gcc
-CFLAGS=--std=c11
+# CFLAGS=--std=c11
 LDFLAGS=-L../target/debug/
 LDLIBS=-lmemerge -lpcap
 
